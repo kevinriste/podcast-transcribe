@@ -15,7 +15,7 @@ if [ "$newHash" != "$oldHash" ]; then
     cp audio-aws-hash-new.txt audio-aws-hash.txt
     echo $(TZ=America/Chicago date --iso-8601=seconds)"--AWS--Run AWS Dropcaster"
     cd audio-aws
-    /usr/local/bin/docker-compose --file ./docker-compose.aws.yml run dropcaster dropcaster --url "${PODCAST_DOMAIN_SECONDARY}" > ./new-index-aws.rss
+    /usr/local/bin/docker-compose --file ./docker-compose.aws.yml run dropcaster dropcaster --url "https://${PODCAST_DOMAIN_SECONDARY}" > ./new-index-aws.rss
     cp ./new-index-aws.rss ./audio-aws/index.rss
 fi
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--AWS--End Script"
