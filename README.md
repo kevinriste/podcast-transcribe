@@ -18,34 +18,46 @@ Lastly, Docker cleanup is run since the dropcaster run leaves behind a new stopp
 
 There is also a second script that can run which uses the AWS Polly text-to-speech service. I have tried this out but I prefer the Google service. Others say that the Polly one is more natural-sounding. In order for the AWS script to work, AWS credentials need to be set at the ENV level on the machine running the script.
 
+### Environment variables required
+
 This is the list of ENV variables that need to be set locally for this script to work.
 
-GMAIL_PRIMARY_ACCOUNT
-Primary email of user, used for domain registration and optional forwarding of emails to podcast account
+- GMAIL_PRIMARY_ACCOUNT
 
-GMAIL_PRIMARY_ACCOUNT_APP_PASSWORD
-App password for primary account
+    Primary email of user, used for domain registration and optional forwarding of emails to podcast account
 
-GMAIL_PODCAST_ACCOUNT
-Email account where all emails will be turned into podcast episodes
+- GMAIL_PRIMARY_ACCOUNT_APP_PASSWORD
 
-GMAIL_PODCAST_ACCOUNT_APP_PASSWORD
-App password for podcast account
+    App password for primary account
 
-GOOGLE_DOMAIN_1
-Primary domain for Google DNS
+- GMAIL_PODCAST_ACCOUNT
 
-GOOGLE_DOMAIN_1_KEY
-Username:password combo for setting Google DNS
+    Email account where all emails will be turned into podcast episodes
 
-GOOGLE_DOMAIN_2
-Secondary domain for Google DNS
+- GMAIL_PODCAST_ACCOUNT_APP_PASSWORD
 
-GOOGLE_DOMAIN_2_KEY
-Username:password combo for setting Google DNS
+    App password for podcast account
 
-PODCAST_DOMAIN_PRIMARY
-Primary podcast domain
+- GOOGLE_DOMAIN_1
 
-PODCAST_DOMAIN_SECONDARY
-Secondary (AWS Polly) podcast domain
+    Primary domain for Google DNS
+
+- GOOGLE_DOMAIN_1_KEY
+
+    Username:password combo for setting Google DNS
+
+- GOOGLE_DOMAIN_2
+
+    Secondary domain for Google DNS
+
+- GOOGLE_DOMAIN_2_KEY
+
+    Username:password combo for setting Google DNS
+
+- PODCAST_DOMAIN_PRIMARY
+
+    Primary podcast domain
+
+- PODCAST_DOMAIN_SECONDARY
+
+    Secondary (AWS Polly) podcast domain
