@@ -1,0 +1,29 @@
+{
+    "_meta": {
+        "hash": {
+            "sha256": "e97d69a3e4918ee2571d613bf2ec19413a515c136f49b3ac3b7b0170f95faff5"
+        },
+        "pipfile-spec": 6,
+        "requires": {
+            "python_version": "3.8"
+        },
+        "sources": [
+            {
+                "name": "pypi",
+                "url": "https://pypi.org/simple",
+                "verify_ssl": true
+            }
+        ]
+    },
+    "default": {
+        "imap-tools": {
+            "hashes": [
+                "sha256:04aa73ccf454ec656cb6322bba14da9ee4fb82b91c69f28497ef008c08ffbbc2",
+                "sha256:ecda74fee87d3ecb477717cf5c9f9ecaa2bc5f1ea7f723a2c174dea27f7ad0c3"
+            ],
+            "index": "pypi",
+            "version": "==0.49.1"
+        }
+    },
+    "develop": {}
+}

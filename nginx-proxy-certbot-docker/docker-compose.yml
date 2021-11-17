@@ -1,0 +1,45 @@
+version: '3.3'
+services:
+    nginx-proxy:
+        container_name: nginx-proxy
+        restart: always
+        ports:
+            - '8090:80'
+            - '8093:443'
+            - '80:80'
+            - '443:443'
+        volumes:
+            - './certs:/etc/nginx/certs'
+            - './vhost:/etc/nginx/vhost.d'
+            - './html:/usr/share/nginx/html'
+            - '/var/run/docker.sock:/tmp/docker.sock:ro'
+        image: nginxproxy/nginx-proxy
+    acme-companion:
+        container_name: nginx-proxy-acme
+        restart: always
+        volumes_from:
+          - nginx-proxy
+        volumes:
+            - './acme:/etc/acme.sh'
+            - '/var/run/docker.sock:/var/run/docker.sock:ro'
+        environment:
+            - "DEFAULT_EMAIL=${GMAIL_PRIMARY_ACCOUNT}"
+        image: nginxproxy/acme-companion
+    nginx:
+        container_name: podcast_primary
+        restart: always
+        environment:
+            - "VIRTUAL_HOST=${PODCAST_DOMAIN_PRIMARY}"
+            - "LETSENCRYPT_HOST=${PODCAST_DOMAIN_PRIMARY}"
+        volumes:
+            - '../dropcaster-docker/audio:/usr/share/nginx/html'
+        image: nginx
+    nginx-aws:
+        container_name: podcast_secondary
+        restart: always
+        environment:
+            - "VIRTUAL_HOST=${PODCAST_DOMAIN_SECONDARY}"
+            - "LETSENCRYPT_HOST=${PODCAST_DOMAIN_SECONDARY}"
+        volumes:
+            - '../dropcaster-docker/audio-aws:/usr/share/nginx/html'
+        image: nginx
