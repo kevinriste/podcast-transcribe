@@ -5,6 +5,9 @@ name = "pypi"
 
 [packages]
 imap-tools = "*"
+bs4 = "*"
+requests = "*"
+trafilatura = "*"
 
 [dev-packages]
 
