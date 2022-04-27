@@ -24,11 +24,7 @@ This is the list of ENV variables that need to be set locally for this script to
 
 - GMAIL_PRIMARY_ACCOUNT
 
-    Primary email of user, used for domain registration and optional forwarding of emails to podcast account
-
-- GMAIL_PRIMARY_ACCOUNT_APP_PASSWORD
-
-    App password for primary account
+    Primary email of user, used for domain registration
 
 - GMAIL_PODCAST_ACCOUNT
 
