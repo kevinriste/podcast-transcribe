@@ -5,6 +5,11 @@ echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install IMAP Parse Em
 /usr/bin/pipenv install
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run IMAP Parse Emails script"
 /usr/bin/pipenv run python3 parse_email.py
+cd /home/flog99/dev/podcast-transcribe/rss
+echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Parse RSS dependencies"
+/usr/bin/pipenv install
+echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Parse RSS script"
+/usr/bin/pipenv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google and AWS directories"
