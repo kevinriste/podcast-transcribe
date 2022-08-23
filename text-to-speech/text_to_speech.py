@@ -25,6 +25,10 @@ def clean_text(text):
     text = re.sub(r'(\r\n|\r|\n){2}Unsubscribe', '', text)
     # get rid of intro 'view this post on the web' text
     text = re.sub(r'View this post on the web at (\r\n|\r|\n){2}', '', text)
+    # get rid of social links at top of Money Illusion posts
+    text = re.sub(r'Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)', '', text)
+    # add punctuation to end of lines without it so that narration pauses briefly
+    text = re.sub(r'(\w)\s*(\r\n|\r|\n)', r'\1.\2', text)
     return text
 
 def process_files():
