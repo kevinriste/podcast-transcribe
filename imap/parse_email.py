@@ -30,6 +30,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
             second_clean_email_text = re.sub(r'\[\]', '', first_clean_email_text)
             third_clean_email_text = re.sub(r'\(\)', '', second_clean_email_text)
             clean_email_text = re.sub(r'<>', '', third_clean_email_text)
+            clean_email_text = clean_from + '.\n' + clean_subject + '.\n' + '\n' + clean_email_text
             output_file = open(output_filename,"w")
             output_file.write(clean_email_text)
             output_file.close()
@@ -42,6 +43,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
             soup = BeautifulSoup(html_content_for_soup, "html.parser")
             html_content = fetch_url(email_text)
             webpage_text = extract(html_content, include_comments=False)
+            webpage_text = soup.title.string + '.\n' + '\n' + webpage_text
             output_filename = f'{output_folder}/{date}-{soup.title.string}.txt'
             # webpage_text = soup.get_text()
             output_file = open(output_filename,"w")
