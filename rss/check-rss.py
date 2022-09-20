@@ -38,7 +38,7 @@ for feed in feeds:
         output_filename = f'{output_folder}/{date}-{clean_from}{clean_subject}.txt'
         soup = BeautifulSoup(parsedFeedEntry.content[0].value, "html.parser")
         content_text = soup.get_text()
-        context_text = clean_from + '.\n' + clean_subject + '.\n' + '\n' + context_text
+        content_text = clean_from + '.\n' + clean_subject + '.\n' + '\n' + content_text
         output_file = open(output_filename, "w")
         output_file.write(content_text)
         output_file.close()
