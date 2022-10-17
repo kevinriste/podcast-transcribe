@@ -51,9 +51,11 @@ def text_to_speech(incoming_filename):
         compiled_regex_for_first_whitespace = re.compile(r'(\r\n|\r|\n|\.)+\s+')
         next_text_starter_position = 0
         counter = 0
-
+        notignored = True
+        if "All in Her Head- Abortion Every Day" in name:
+            notignored = False
         max_steps = math.floor(1 + len(text) / min_step_size)
-        if len(text) < 150000 and len(text) > 0:
+        if len(text) < 150000 and len(text) > 0 and notignored:
             while next_text_starter_position < len(text):
                 counter = counter + 1
                 first_whitespace_after_min_step_size_search = compiled_regex_for_first_whitespace.search(text, next_text_starter_position + min_step_size, next_text_starter_position + max_step_size)
