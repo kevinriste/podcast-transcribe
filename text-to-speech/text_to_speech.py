@@ -52,7 +52,9 @@ def text_to_speech(incoming_filename):
         next_text_starter_position = 0
         counter = 0
         notignored = True
-        if "All in Her Head- Abortion Every Day" in name:
+        if "Jessica Valenti- Abortion Every Day" in name:
+            notignored = False
+        if "Serious Trouble- " in name:
             notignored = False
         max_steps = math.floor(1 + len(text) / min_step_size)
         if len(text) < 150000 and len(text) > 0 and notignored:
