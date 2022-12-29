@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 
 from imap_tools import MailBox, A, AND, OR, NOT, MailMessageFlags
 
+import youtube_dl
+
 output_folder = '../text-to-speech/text-input'
 gmail_user = os.getenv('GMAIL_PODCAST_ACCOUNT')
 gmail_password = os.getenv('GMAIL_PODCAST_ACCOUNT_APP_PASSWORD')
@@ -22,7 +24,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
         clean_from = re.sub(r'[^A-Za-z0-9 ]+', '', from_)
         clean_from = clean_from + '- ' if clean_from != '' else ''
         clean_subject = re.sub(r'[^A-Za-z0-9 ]+', '', subject)
-        if clean_subject != 'link':
+        if clean_subject != 'link' and clean_subject != 'youtube':
             output_filename = f'{output_folder}/{date}-{clean_from}{clean_subject}.txt'
             print(f'parsing email: {output_filename}')
             email_text = msg.text
@@ -45,9 +47,21 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
                 output_file = open(output_filename,"w")
                 output_file.write(clean_email_text)
                 output_file.close()
-            output_file = open(output_filename,"w")
-            output_file.write(clean_email_text)
-            output_file.close()
+        elif clean_subject == 'youtube':
+            email_text = msg.text
+            email_text = re.sub(r'[^\S]+', '', email_text)
+            print(f'fetching youtube audio: {email_text}')
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'outtmpl': "../dropcaster-docker/audio/%(channel)s- %(title)s.%(ext)s"
+            }
+            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([email_text])
         else:
             email_text = msg.text
             email_text = re.sub(r'[^\S]+', '', email_text)
