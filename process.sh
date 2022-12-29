@@ -1,24 +1,27 @@
 #!/bin/bash
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Start Script"
+export PYENV_ROOT="/home/flog99/.pyenv"
+command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
 cd /home/flog99/dev/podcast-transcribe/imap
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install IMAP Parse Emails dependencies"
-/usr/bin/pipenv install
+pipenv install
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run IMAP Parse Emails script"
-/usr/bin/pipenv run python3 parse_email.py
+pipenv run python3 parse_email.py
 cd /home/flog99/dev/podcast-transcribe/rss
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Parse RSS dependencies"
-/usr/bin/pipenv install
+pipenv install
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Parse RSS script"
-/usr/bin/pipenv run python3 check-rss.py
+pipenv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google and AWS directories"
 cp -r text-to-speech/text-input text-to-speech-polly
 cd text-to-speech
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Google Text to Speech dependencies"
-/usr/bin/pipenv install
+pipenv install
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Text to Speech script"
-/usr/bin/pipenv run python3 text_to_speech.py
+pipenv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Check if podcast files changed"
