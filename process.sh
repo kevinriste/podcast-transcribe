@@ -18,6 +18,8 @@ export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailP
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google and AWS directories"
 cp -r text-to-speech/text-input text-to-speech-polly
 cd text-to-speech
+echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Remove empty text files"
+find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Google Text to Speech dependencies"
 pipenv install
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Text to Speech script"

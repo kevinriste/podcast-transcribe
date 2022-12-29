@@ -36,6 +36,15 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
             clean_email_text = re.sub(r'<>', '', third_clean_email_text)
             if len(clean_email_text) > 0:
                 clean_email_text = clean_from + '.\n' + clean_subject + '.\n' + '\n' + clean_email_text
+            move_to_podcast = True
+            if "Jessica Valenti- Abortion Every Day" in output_filename:
+                move_to_podcast = False
+            if "Serious Trouble- " in output_filename:
+                move_to_podcast = False
+            if move_to_podcast:
+                output_file = open(output_filename,"w")
+                output_file.write(clean_email_text)
+                output_file.close()
             output_file = open(output_filename,"w")
             output_file.write(clean_email_text)
             output_file.close()
