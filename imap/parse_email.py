@@ -72,7 +72,8 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
             html_content = fetch_url(email_text)
             webpage_text = extract(html_content, include_comments=False)
             webpage_text = soup.title.string + '.\n' + '\n' + webpage_text
-            output_filename = f'{output_folder}/{date}-{soup.title.string}.txt'
+            clean_title = re.sub(r'[^A-Za-z0-9 ]+', '', soup.title.string)
+            output_filename = f'{output_folder}/{date}-{clean_title}.txt'
             # webpage_text = soup.get_text()
             output_file = open(output_filename,"w")
             output_file.write(webpage_text)
