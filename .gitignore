@@ -17,4 +17,6 @@
 !/request*.json
 /dropcaster-docker/new-index.rss
 /dropcaster-docker/new-index-aws.rss
-/other-sites/
+/other-sites/*
+!/other-sites/yt-transcribe/
+/other-sites/yt-transcribe/docker-compose.yml
