@@ -5,10 +5,9 @@ name = "pypi"
 
 [packages]
 imap-tools = "*"
-bs4 = "*"
-requests = "*"
 trafilatura = "*"
 youtube-dl = {editable = true, ref = "195f22f679330549882a8234e7234942893a4902", git = "https://github.com/ytdl-org/youtube-dl.git"}
+requests-html = "*"
 
 [dev-packages]
 

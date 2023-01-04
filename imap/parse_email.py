@@ -1,13 +1,9 @@
 import os
 import re
 import operator
-import requests
-from trafilatura import fetch_url, extract
-
-from bs4 import BeautifulSoup
-
+from trafilatura import fetch_url, extract, bare_extraction
+from requests_html import HTMLSession
 from imap_tools import MailBox, A, AND, OR, NOT, MailMessageFlags
-
 import youtube_dl
 
 output_folder = '../text-to-speech/text-input'
@@ -67,14 +63,15 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
             email_text = re.sub(r'[^\S]+', '', email_text)
             print(f'fetching webpage: {email_text}')
             # Make a GET request to fetch the raw HTML content using URL which should be entire body of webpage
-            html_content_for_soup = requests.get(email_text).text
-            soup = BeautifulSoup(html_content_for_soup, "html.parser")
-            html_content = fetch_url(email_text)
+            session = HTMLSession()
+            html_fetch = session.get(email_text)
+            html_fetch.html.render()
+            html_content = html_fetch.html.html
+            html_content_parsed_for_title = bare_extraction(html_content)
             webpage_text = extract(html_content, include_comments=False)
-            webpage_text = soup.title.string + '.\n' + '\n' + webpage_text
-            clean_title = re.sub(r'[^A-Za-z0-9 ]+', '', soup.title.string)
+            webpage_text = html_content_parsed_for_title.get('title') + '.\n' + '\n' + webpage_text
+            clean_title = re.sub(r'[^A-Za-z0-9 ]+', '', html_content_parsed_for_title.get('title'))
             output_filename = f'{output_folder}/{date}-{clean_title}.txt'
-            # webpage_text = soup.get_text()
             output_file = open(output_filename,"w")
             output_file.write(webpage_text)
             output_file.close()
