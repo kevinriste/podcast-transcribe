@@ -6,6 +6,11 @@ import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 import Container from '@mui/material/Container';
 import Head from 'next/head'
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 
 const Home = () => {
   const getYoutubeTranscript = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -34,12 +39,12 @@ const Home = () => {
     }
   };
 
-  const getTranscriptSummary = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
+  const getTranscriptSummary = async (passwordToSubmitToApi: string) => {
     setSummaryText('Fetching summary...')
     setIsSummaryError(false)
     const dataToSubmit = {
       transcript: transcriptText,
+      passwordToSubmitToApi
     };
     const response = await fetch("/api/getSummary", {
       method: "POST",
@@ -62,7 +67,26 @@ const Home = () => {
 
   const [isSummaryError, setIsSummaryError] = React.useState(false);
   const [summaryText, setSummaryText] = React.useState('');
+  
+  const [passwordDialogIsOpen, setPasswordDialogIsOpen] = React.useState(false);
 
+  const handlePasswordDialogClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    setPasswordDialogIsOpen(true);
+  };
+
+  const handlePasswordDialogClose = () => {
+    setPasswordDialogIsOpen(false);
+  };
+  const handlePasswordDialogConfirm = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setPasswordDialogIsOpen(false);
+    const data = new FormData(event.currentTarget);
+    const apiPasswordToSubmit = data.get('apiPasswordToSubmit');
+    if (typeof apiPasswordToSubmit === 'string') getTranscriptSummary(apiPasswordToSubmit);
+    else getTranscriptSummary(JSON.stringify(apiPasswordToSubmit))
+  };
+  
   return (
     <Container maxWidth="lg">
       <Head>
@@ -109,12 +133,34 @@ const Home = () => {
           {!isTranscriptError && transcriptText !== 'Fetching transcript...' &&
             <>
               <Button
-                onClick={getTranscriptSummary}
+                onClick={handlePasswordDialogClick}
                 variant="outlined"
                 sx={{ mb: 2 }}
               >
                 Get Summary
               </Button>
+              <Dialog open={passwordDialogIsOpen} onClose={handlePasswordDialogClose}>
+                <form onSubmit={handlePasswordDialogConfirm}>
+                <DialogTitle>Enter password</DialogTitle>
+                <DialogContent>
+                  <DialogContentText>
+                    To get a summary, provide the API password here.
+                  </DialogContentText>
+                  <TextField
+                    autoFocus
+                    name="apiPasswordToSubmit"
+                    margin="dense"
+                    label="API password"
+                    fullWidth
+                    variant="standard"
+                  />
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={handlePasswordDialogClose}>Cancel</Button>
+                  <Button type="submit">Submit</Button>
+                </DialogActions>
+                </form>
+              </Dialog>
               {!isSummaryError && summaryText !== '' &&
                 <Typography
                   sx={{ mb: 2 }}>

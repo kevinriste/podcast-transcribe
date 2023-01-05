@@ -13,28 +13,33 @@ const handler = async (
 ) => {
   const body = JSON.parse(req.body);
   const transcript = body.transcript || '';
-  const prompt = 'Please summarize the below YouTube transcript to tell me the main point the video is trying to make: "' + transcript + '"'
+  const inputPassword = body.passwordToSubmitToApi || '';
 
-  try {
-    const completion = await openai.createCompletion({
-      model: "text-davinci-003",
-      prompt: prompt,
-      max_tokens: 2048,
-    });
+  if (inputPassword === process.env.API_PASSWORD) {
 
-    const summary = completion.data.choices[0].text;
+    const prompt = 'Please summarize the below YouTube transcript to tell me the main point the video is trying to make: "' + transcript + '"'
 
-    res.status(200).json(summary)
-  } catch (error: any) {
-    if (error.response) {
-      console.error(error.response.status);
-      console.error(error.response.data);
-      res.status(500).send(JSON.stringify(error.response));
-    } else {
-      console.error(error.message);
-      res.status(500).send(error.message);
+    try {
+      const completion = await openai.createCompletion({
+        model: "text-davinci-003",
+        prompt: prompt,
+        max_tokens: 512,
+      });
+
+      const summary = completion.data.choices[0].text;
+
+      res.status(200).json(summary)
+    } catch (error: any) {
+      if (error.response) {
+        console.error(error.response.status);
+        console.error(error.response.data);
+        res.status(500).send(JSON.stringify(error.response));
+      } else {
+        console.error(error.message);
+        res.status(500).send(error.message);
+      }
     }
-  }
+  } else res.status(500).send('Incorrect API password provided');
 }
 
 export default handler;
