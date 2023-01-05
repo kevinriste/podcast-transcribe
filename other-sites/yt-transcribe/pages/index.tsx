@@ -5,12 +5,15 @@ import Box from '@mui/material/Box';
 import Alert from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 import Container from '@mui/material/Container';
+import Head from 'next/head'
 
 const Home = () => {
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const getYoutubeTranscript = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setTranscriptText('Fetching transcript...')
-    setisError(false)
+    setSummaryText('')
+    setisTranscriptError(false)
+    setIsSummaryError(false)
     const data = new FormData(event.currentTarget);
     const dataToSubmit = {
       yturl: data.get('yturl'),
@@ -26,16 +29,45 @@ const Home = () => {
     else {
       const responseError = await response.text();
       console.error(responseError);
-      setisError(true)
+      setisTranscriptError(true)
       setTranscriptText(responseError.toString())
     }
   };
 
-  const [isError, setisError] = React.useState(false);
+  const getTranscriptSummary = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    setSummaryText('Fetching summary...')
+    setIsSummaryError(false)
+    const dataToSubmit = {
+      transcript: transcriptText,
+    };
+    const response = await fetch("/api/getSummary", {
+      method: "POST",
+      body: JSON.stringify(dataToSubmit),
+    });
+    if (response.ok) {
+      const responseJson = await response.json();
+      setSummaryText(responseJson)
+    }
+    else {
+      const responseError = await response.text();
+      console.error(responseError);
+      setIsSummaryError(true)
+      setSummaryText(responseError.toString())
+    }
+  };
+
+  const [isTranscriptError, setisTranscriptError] = React.useState(false);
   const [transcriptText, setTranscriptText] = React.useState('');
+
+  const [isSummaryError, setIsSummaryError] = React.useState(false);
+  const [summaryText, setSummaryText] = React.useState('');
 
   return (
     <Container maxWidth="lg">
+      <Head>
+        <title>YouTube Transcribe</title>
+      </Head>
       <Box
         sx={{
           marginTop: 8,
@@ -47,7 +79,7 @@ const Home = () => {
         <Typography component="h1" variant="h5">
           Enter the YouTube URL
         </Typography>
-        <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }}>
+        <Box component="form" onSubmit={getYoutubeTranscript} noValidate sx={{ mt: 1 }}>
           <TextField
             margin="normal"
             fullWidth
@@ -74,17 +106,42 @@ const Home = () => {
             alignItems: 'center',
           }}
         >
-          {!isError && transcriptText !== 'Fetching transcript...' && <Button
-            onClick={() => navigator.clipboard.writeText(transcriptText)}
-            variant="outlined"
-            sx={{ mb: 2 }}
-          >
-            Copy to clipboard
-          </Button>}
-          {!isError && <Typography>
+          {!isTranscriptError && transcriptText !== 'Fetching transcript...' &&
+            <>
+              <Button
+                onClick={getTranscriptSummary}
+                variant="outlined"
+                sx={{ mb: 2 }}
+              >
+                Get Summary
+              </Button>
+              {!isSummaryError && summaryText !== '' &&
+                <Typography
+                  sx={{ mb: 2 }}>
+                  {summaryText}
+                </Typography>
+              }
+              {isSummaryError &&
+                <Alert
+                  severity="error"
+                  sx={{ mb: 2 }}
+                >
+                  {summaryText}
+                </Alert>
+              }
+              <Button
+                onClick={() => navigator.clipboard.writeText(transcriptText)}
+                variant="outlined"
+                sx={{ mb: 2 }}
+              >
+                Copy to clipboard
+              </Button>
+            </>
+          }
+          {!isTranscriptError && <Typography>
             {transcriptText}
           </Typography>}
-          {isError && <Alert
+          {isTranscriptError && <Alert
             severity="error"
           >
             {transcriptText}
