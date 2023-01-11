@@ -2,7 +2,7 @@ import * as React from 'react';
 import Button from '@mui/material/Button';
 import TextField from '@mui/material/TextField';
 import Box from '@mui/material/Box';
-import Alert from '@mui/material/Alert';
+import Alert, { AlertColor } from '@mui/material/Alert';
 import Typography from '@mui/material/Typography';
 import Container from '@mui/material/Container';
 import Head from 'next/head'
@@ -41,6 +41,7 @@ const Home = () => {
 
   const getTranscriptSummary = async (passwordToSubmitToApi: string) => {
     setSummaryText('Fetching summary...')
+    setSummaryAlert({ message: '', level: 'info' })
     setIsSummaryError(false)
     const dataToSubmit = {
       transcript: transcriptText,
@@ -52,7 +53,8 @@ const Home = () => {
     });
     if (response.ok) {
       const responseJson = await response.json();
-      setSummaryText(responseJson)
+      setSummaryText(responseJson.summary)
+      if (responseJson.message !== '') setSummaryAlert({ message: responseJson.message, level: "info" })
     }
     else {
       const responseError = await response.text();
@@ -67,7 +69,9 @@ const Home = () => {
 
   const [isSummaryError, setIsSummaryError] = React.useState(false);
   const [summaryText, setSummaryText] = React.useState('');
-  
+
+  const [summaryAlert, setSummaryAlert] = React.useState<{ message: string, level: AlertColor }>({ message: '', level: 'info' })
+
   const [passwordDialogIsOpen, setPasswordDialogIsOpen] = React.useState(false);
 
   const handlePasswordDialogClick = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -86,7 +90,7 @@ const Home = () => {
     if (typeof apiPasswordToSubmit === 'string') getTranscriptSummary(apiPasswordToSubmit);
     else getTranscriptSummary(JSON.stringify(apiPasswordToSubmit))
   };
-  
+
   return (
     <Container maxWidth="lg">
       <Head>
@@ -141,31 +145,41 @@ const Home = () => {
               </Button>
               <Dialog open={passwordDialogIsOpen} onClose={handlePasswordDialogClose}>
                 <form onSubmit={handlePasswordDialogConfirm}>
-                <DialogTitle>Enter password</DialogTitle>
-                <DialogContent>
-                  <DialogContentText>
-                    To get a summary, provide the API password here.
-                  </DialogContentText>
-                  <TextField
-                    autoFocus
-                    name="apiPasswordToSubmit"
-                    margin="dense"
-                    label="API password"
-                    fullWidth
-                    variant="standard"
-                  />
-                </DialogContent>
-                <DialogActions>
-                  <Button onClick={handlePasswordDialogClose}>Cancel</Button>
-                  <Button type="submit">Submit</Button>
-                </DialogActions>
+                  <DialogTitle>Enter password</DialogTitle>
+                  <DialogContent>
+                    <DialogContentText>
+                      To get a summary, provide the API password here.
+                    </DialogContentText>
+                    <TextField
+                      autoFocus
+                      name="apiPasswordToSubmit"
+                      margin="dense"
+                      label="API password"
+                      fullWidth
+                      variant="standard"
+                    />
+                  </DialogContent>
+                  <DialogActions>
+                    <Button onClick={handlePasswordDialogClose}>Cancel</Button>
+                    <Button type="submit">Submit</Button>
+                  </DialogActions>
                 </form>
               </Dialog>
               {!isSummaryError && summaryText !== '' &&
-                <Typography
-                  sx={{ mb: 2 }}>
-                  {summaryText}
-                </Typography>
+                <>
+                  {summaryAlert.message !== '' &&
+                    <Alert
+                      severity={summaryAlert.level}
+                      sx={{ mb: 2 }}
+                    >
+                      {summaryAlert.message}
+                    </Alert>
+                  }
+                  <Typography
+                    sx={{ mb: 2 }}>
+                    {summaryText}
+                  </Typography>
+                </>
               }
               {isSummaryError &&
                 <Alert
