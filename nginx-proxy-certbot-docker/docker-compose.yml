@@ -1,7 +1,6 @@
 version: '3.3'
 services:
     nginx-proxy:
-        container_name: nginx-proxy
         restart: always
         ports:
             - '8090:80'
@@ -15,7 +14,6 @@ services:
             - '/var/run/docker.sock:/tmp/docker.sock:ro'
         image: nginxproxy/nginx-proxy
     acme-companion:
-        container_name: nginx-proxy-acme
         restart: always
         volumes_from:
           - nginx-proxy
@@ -25,8 +23,7 @@ services:
         environment:
             - "DEFAULT_EMAIL=${GMAIL_PRIMARY_ACCOUNT}"
         image: nginxproxy/acme-companion
-    nginx:
-        container_name: podcast_primary
+    podcast_primary:
         restart: always
         environment:
             - "VIRTUAL_HOST=${PODCAST_DOMAIN_PRIMARY}"
@@ -34,8 +31,7 @@ services:
         volumes:
             - '../dropcaster-docker/audio:/usr/share/nginx/html'
         image: nginx
-    nginx-aws:
-        container_name: podcast_secondary
+    podcast_secondary:
         restart: always
         environment:
             - "VIRTUAL_HOST=${PODCAST_DOMAIN_SECONDARY}"
