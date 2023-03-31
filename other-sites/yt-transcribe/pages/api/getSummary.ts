@@ -37,13 +37,27 @@ const handler = async (
 
       prompt = prompt + endOfTranscript
 
-      const completion = await openai.createCompletion({
-        model: process.env.OPENAI_MODEL,
-        prompt: prompt,
-        max_tokens: openAiMaxResponseTokens,
-      });
+      let summary: any = '';
+      let apiResponseKey = 'text'
 
-      const summary = completion.data.choices[0].text;
+      if (process.env.OPENAI_MODEL !== "gpt-3.5-turbo") {
+        const completion = await openai.createCompletion({
+          model: process.env.OPENAI_MODEL,
+          prompt: prompt,
+          max_tokens: openAiMaxResponseTokens,
+        });
+
+        summary = completion.data.choices[0].text;
+      } else {
+        const completion = await openai.createChatCompletion({
+          model: process.env.OPENAI_MODEL,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: openAiMaxResponseTokens,
+        });
+        
+        summary = completion.data.choices[0].message.content;
+      }
+
 
       res.status(200).json({
         message: messageToPrepend,
