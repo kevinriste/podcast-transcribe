@@ -28,7 +28,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
                 email_text = extract(msg.html, include_comments=False)
             if clean_from == 'Ross Douthat- ':
                 email_text = extract(msg.html, include_comments=False)
-            first_clean_email_text = re.sub(r'https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,4}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)', '', email_text)
+            first_clean_email_text = re.sub(r'https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)', '', email_text)
             second_clean_email_text = re.sub(r'\[\]', '', first_clean_email_text)
             third_clean_email_text = re.sub(r'\(\)', '', second_clean_email_text)
             clean_email_text = re.sub(r'<>', '', third_clean_email_text)
