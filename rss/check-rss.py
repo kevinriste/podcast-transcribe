@@ -7,6 +7,10 @@ from waybackpy import WaybackMachineSaveAPI
 from trafilatura import extract, bare_extraction
 from requests_html import HTMLSession
 import pyppeteer
+import logging
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)s %(message)s')
 
 output_folder = '../text-to-speech/text-input'
 feedsFile = 'feeds.txt'
@@ -52,7 +56,7 @@ for feed in feeds:
                 html_fetch.raise_for_status()
                 html_fetch.html.render(timeout=60)
             except (requests.HTTPError, pyppeteer.errors.TimeoutError) as e:
-                print(f"{archive_url} URL caused the issue.")
+                logging.info(f"{archive_url} URL caused the issue.")
                 raise e
             html_content = html_fetch.html.html
             html_content_parsed_for_title = bare_extraction(html_content)

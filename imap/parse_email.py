@@ -5,6 +5,10 @@ from trafilatura import fetch_url, extract, bare_extraction
 from requests_html import HTMLSession
 from imap_tools import MailBox, A, AND, OR, NOT, MailMessageFlags
 import youtube_dl
+import logging
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(levelname)s %(message)s')
 
 output_folder = '../text-to-speech/text-input'
 gmail_user = os.getenv('GMAIL_PODCAST_ACCOUNT')
@@ -22,7 +26,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
         clean_subject = re.sub(r'[^A-Za-z0-9 ]+', '', subject)
         if clean_subject != 'link' and clean_subject != 'youtube':
             output_filename = f'{output_folder}/{date}-{clean_from}{clean_subject}.txt'
-            print(f'parsing email: {output_filename}')
+            logging.info(f'parsing email: {output_filename}')
             email_text = msg.text
             if clean_from == 'Paul Krugman- ':
                 email_text = extract(msg.html, include_comments=False)
@@ -46,7 +50,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
         elif clean_subject == 'youtube':
             email_text = msg.text
             email_text = re.sub(r'[^\S]+', '', email_text)
-            print(f'fetching youtube audio: {email_text}')
+            logging.info(f'fetching youtube audio: {email_text}')
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'postprocessors': [{
@@ -61,7 +65,7 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
         else:
             email_text = msg.text
             email_text = re.sub(r'[^\S]+', '', email_text)
-            print(f'fetching webpage: {email_text}')
+            logging.info(f'fetching webpage: {email_text}')
             # Make a GET request to fetch the raw HTML content using URL which should be entire body of webpage
             session = HTMLSession()
             html_fetch = session.get(email_text)
