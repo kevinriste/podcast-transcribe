@@ -14,6 +14,11 @@ logging.basicConfig(level=logging.INFO,
 
 output_folder = '../text-to-speech/text-input'
 feedsFile = 'feeds.txt'
+wayback_feeds = [
+    "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ross-douthat/rss.xml",
+    "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/paul-krugman/rss.xml",
+    "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ezra-klein/rss.xml"
+    ]
 
 feeds = [line.rstrip() for line in open(feedsFile)]
 
@@ -25,25 +30,27 @@ for feed in feeds:
     guid_filename = f'./feed-guids/{clean_from_original}.txt'
     try:
         with open(guid_filename) as guid_file:
-            guids = guid_file.readlines()
+            mostRecentGuid = guid_file.read()
     except FileNotFoundError:
-        guids = ['']
-    if not guids:
-        guids = ['']
-    mostRecentGuid = guids.pop()
-    latestEntry = True
-    for parsedFeedEntry in parsedFeed.entries:
-        if parsedFeedEntry.id == mostRecentGuid:
-            break
+        mostRecentGuid = None
+    parsedFeedEntryGuids = [parsedFeedEntry.id for parsedFeedEntry in parsedFeed.entries]
+    try:
+        most_recent_guid_index = parsedFeedEntryGuids.index(mostRecentGuid)
+    except ValueError:
+        most_recent_guid_index = None
+
+    # Get list of RSS items that haven't been processed, process them from oldest to newest
+    feed_entries_before_most_recently_processed = parsedFeed.entries[:most_recent_guid_index][::-1]
+
+    if len(feed_entries_before_most_recently_processed) > 0:
+        logging.info(f'Processing {len(feed_entries_before_most_recently_processed)} entries for {feed}')
+        
+    for parsedFeedEntry in feed_entries_before_most_recently_processed:
         raw_date = parser.parse(parsedFeedEntry.published)
         date = raw_date.strftime('%Y%m%d-%H%M%S-%f')[0:15]
         clean_subject = re.sub(r'[^A-Za-z0-9 ]+', '', parsedFeedEntry.title)
         output_filename = f'{output_folder}/{date}-{clean_from}{clean_subject}.txt'
-        wayback_feeds = [
-            "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ross-douthat/rss.xml",
-            "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/paul-krugman/rss.xml",
-            "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ezra-klein/rss.xml"
-          ]
+
         if feed in wayback_feeds:
             original_url = parsedFeedEntry.link
             user_agent = "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
@@ -69,8 +76,6 @@ for feed in feeds:
         output_file = open(output_filename, "w")
         output_file.write(content_text)
         output_file.close()
-        if latestEntry:
-            output_file = open(guid_filename, "w")
-            output_file.write(parsedFeedEntry.id)
-            output_file.close()
-            latestEntry = False
+        guid_output_file = open(guid_filename, "w")
+        guid_output_file.write(parsedFeedEntry.id)
+        guid_output_file.close()
