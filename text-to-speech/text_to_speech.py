@@ -46,7 +46,7 @@ def text_to_speech(incoming_filename):
         client = texttospeech.TextToSpeechClient()
         mp3files = []
         # we can send up to 5000 characters per request, so split up the text
-        min_step_size = 4000
+        min_step_size = 3000
         max_step_size = 5000
         compiled_regex_for_first_whitespace = re.compile(r'(\r\n|\r|\n|\.)+\s+')
         next_text_starter_position = 0
@@ -60,6 +60,8 @@ def text_to_speech(incoming_filename):
                     first_whitespace_after_min_step_size = first_whitespace_after_min_step_size_search.end()
                 else:
                     first_whitespace_after_min_step_size = next_text_starter_position + max_step_size
+                    if next_text_starter_position < len(text):
+                        logging.info(f'max_step_size met before end of email {filename.name}')
                 text_to_process = text[next_text_starter_position:first_whitespace_after_min_step_size]
                 next_text_starter_position = first_whitespace_after_min_step_size
 
