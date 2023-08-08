@@ -1,11 +1,14 @@
 import os
 import re
 import operator
-from trafilatura import fetch_url, extract, bare_extraction
+from trafilatura import extract, bare_extraction
 from requests_html import HTMLSession
 from imap_tools import MailBox, A, AND, OR, NOT, MailMessageFlags
 import youtube_dl
 import logging
+import requests
+import pyppeteer
+from waybackpy import WaybackMachineSaveAPI
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -68,10 +71,19 @@ with MailBox('imap.gmail.com').login(gmail_user, gmail_password) as mailbox:
             email_text = msg.text
             email_text = re.sub(r'[^\S]+', '', email_text)
             logging.info(f'fetching webpage: {email_text}')
-            # Make a GET request to fetch the raw HTML content using URL which should be entire body of webpage
+            original_url = email_text
+            user_agent = "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
+            save_api = WaybackMachineSaveAPI(original_url, user_agent)
+            save_api.save()
+            archive_url = save_api.archive_url
             session = HTMLSession()
-            html_fetch = session.get(email_text)
-            html_fetch.html.render()
+            html_fetch = session.get(archive_url)
+            try:
+                html_fetch.raise_for_status()
+                html_fetch.html.render(timeout=60)
+            except (requests.HTTPError, pyppeteer.errors.TimeoutError) as e:
+                logging.info(f"{archive_url} URL caused the issue.")
+                raise e
             html_content = html_fetch.html.html
             html_content_parsed_for_title = bare_extraction(html_content)
             webpage_text = extract(html_content, include_comments=False)

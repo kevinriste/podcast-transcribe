@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 imap-tools = "*"
 trafilatura = "*"
+waybackpy = "*"
 youtube-dl = {editable = true, ref = "6fece0a96b3cd8677f5c1185a57c6e21403fcb44", git = "https://github.com/ytdl-org/youtube-dl.git"}
 requests-html = "*"
 
