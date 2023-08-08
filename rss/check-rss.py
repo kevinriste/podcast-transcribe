@@ -8,6 +8,7 @@ from trafilatura import extract, bare_extraction
 from requests_html import HTMLSession
 import pyppeteer
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -27,7 +28,8 @@ for feed in feeds:
     from_ = parsedFeed.feed.title
     clean_from_original = re.sub(r'[^A-Za-z0-9 ]+', '', from_)
     clean_from = clean_from_original + '- ' if clean_from_original != '' else ''
-    guid_filename = f'./feed-guids/{clean_from_original}.txt'
+    guid_dir = f'./feed-guids'
+    guid_filename = f'{guid_dir}/{clean_from_original}.txt'
     try:
         with open(guid_filename) as guid_file:
             mostRecentGuid = guid_file.read()
@@ -76,6 +78,9 @@ for feed in feeds:
         output_file = open(output_filename, "w")
         output_file.write(content_text)
         output_file.close()
+        guidDirExists = os.path.exists(guid_dir)
+        if not guidDirExists:
+            os.makedirs(guid_dir)
         guid_output_file = open(guid_filename, "w")
         guid_output_file.write(parsedFeedEntry.id)
         guid_output_file.close()
