@@ -20,3 +20,4 @@
 /other-sites/*
 !/other-sites/yt-transcribe/
 /other-sites/yt-transcribe/docker-compose.yml
+/dropcaster-docker/dropcaster
