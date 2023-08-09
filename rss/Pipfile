@@ -7,6 +7,9 @@ name = "pypi"
 feedparser = "*"
 python-dateutil = "*"
 beautifulsoup4 = "*"
+waybackpy = "*"
+trafilatura = "*"
+requests-html = "*"
 
 [dev-packages]
 
