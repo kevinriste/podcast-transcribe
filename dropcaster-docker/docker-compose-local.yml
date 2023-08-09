@@ -1,0 +1,6 @@
+version: '3.3'
+services:
+  dropcaster:
+    build: ./dropcaster
+    volumes:
+      - ./audio:/public_html
