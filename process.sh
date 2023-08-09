@@ -33,7 +33,7 @@ oldHash=$(cat audio-hash.txt)
 if [ "$newHash" != "$oldHash" ]; then
     echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Dropcaster"
     start=$(date +%s)
-    /usr/local/bin/docker-compose run dropcaster dropcaster --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
+    docker compose run dropcaster dropcaster --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
     echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash.txt
     end=$(date +%s)
