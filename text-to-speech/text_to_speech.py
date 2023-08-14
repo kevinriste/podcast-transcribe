@@ -29,6 +29,8 @@ def clean_text(text):
     text = re.sub(r'Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)', '', text)
     # add punctuation to end of lines without it so that narration pauses briefly
     text = re.sub(r'(\w)\s*(\r\n|\r|\n)', r'\1.\2', text)
+    # fix pronunciation of Keynesian
+    text = re.sub(r'Keynesian', 'Cainzeean', text, flags=re.IGNORECASE)
     return text
 
 def process_files():
