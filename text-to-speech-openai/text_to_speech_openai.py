@@ -131,7 +131,7 @@ def text_to_speech(incoming_filename):
 
             date = datetime.now().strftime("%Y%m%d")
             name_without_date = name[16:]
-            output_filename = f"{final_output_dir}/{name_without_date}-{date}.mp3"
+            output_filename = f"{final_output_dir}/nova-{name_without_date}-{date}.mp3"
             if override_voice != "":
                 output_filename = f"{final_output_dir}/{override_voice}-{name_without_date}-{date}.mp3"
 
