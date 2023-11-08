@@ -121,7 +121,8 @@ for feed in feeds:
         guid_output_file = open(guid_filename, "w")
         guid_output_file.write(parsedFeedEntry.id)
         guid_output_file.close()
-        # Copy current version of guids txt file
+        # Copy new version of guids txt file
+        date_string = datetime.now().strftime("%Y%m%d-%H%M%S")
         shutil.copy(
             guid_filename,
             f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
