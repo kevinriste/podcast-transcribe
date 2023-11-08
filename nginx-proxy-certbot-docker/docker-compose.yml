@@ -37,5 +37,5 @@ services:
             - "VIRTUAL_HOST=${PODCAST_DOMAIN_SECONDARY}"
             - "LETSENCRYPT_HOST=${PODCAST_DOMAIN_SECONDARY}"
         volumes:
-            - '../dropcaster-docker/audio-aws:/usr/share/nginx/html'
+            - '../dropcaster-docker/audio-openai:/usr/share/nginx/html'
         image: nginx

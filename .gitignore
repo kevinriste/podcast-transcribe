@@ -13,10 +13,15 @@
 !/dropcaster-docker/audio-aws/channel.yml
 !/dropcaster-docker/audio-aws/index.html
 !/dropcaster-docker/audio-aws/autumn-forest-400-400.jpg
+/dropcaster-docker/audio-openai/**/*
+!/dropcaster-docker/audio-openai/channel.yml
+!/dropcaster-docker/audio-openai/index.html
+!/dropcaster-docker/audio-openai/autumn-forest-400-400.jpg
 /*.json
 !/request*.json
 /dropcaster-docker/new-index.rss
 /dropcaster-docker/new-index-aws.rss
+/dropcaster-docker/new-index-openai.rss
 /other-sites/*
 !/other-sites/yt-transcribe/
 /other-sites/yt-transcribe/docker-compose.yml

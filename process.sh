@@ -15,8 +15,9 @@ echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Parse RSS script"
 pipenv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google and AWS directories"
+echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google, AWS and OpenAI directories"
 cp -r text-to-speech/text-input text-to-speech-polly
+cp -r text-to-speech/text-input text-to-speech-openai
 cd text-to-speech
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Remove empty text files"
 find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;

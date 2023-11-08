@@ -3,4 +3,4 @@ services:
   dropcaster:
     build: ./dropcaster
     volumes:
-      - ./audio-aws:/public_html
+      - ./audio-openai:/public_html

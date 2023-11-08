@@ -18,6 +18,8 @@ Lastly, Docker cleanup is run since the dropcaster run leaves behind a new stopp
 
 There is also a second script that can run which uses the AWS Polly text-to-speech service. I have tried this out but I prefer the Google service. Others say that the Polly one is more natural-sounding. In order for the AWS script to work, AWS credentials need to be set at the ENV level on the machine running the script.
 
+There is also a third script that can run which uses the OpenAI text-to-speech service. I am currently testing it out. Also requires environment variable credentials (OPENAI_API_KEY)
+
 ### Environment variables required
 
 This is the list of ENV variables that need to be set locally for this script to work.
@@ -56,4 +58,4 @@ This is the list of ENV variables that need to be set locally for this script to
 
 - PODCAST_DOMAIN_SECONDARY
 
-    Secondary (AWS Polly) podcast domain
+    Secondary (AWS Polly or OpenAI) podcast domain
