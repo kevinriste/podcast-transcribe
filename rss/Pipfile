@@ -10,6 +10,7 @@ beautifulsoup4 = "*"
 waybackpy = "*"
 trafilatura = "*"
 requests-html = "*"
+msgspec = "*"
 
 [dev-packages]
 

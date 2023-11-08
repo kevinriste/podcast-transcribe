@@ -9,6 +9,9 @@ from requests_html import HTMLSession
 import pyppeteer
 import logging
 import os
+from datetime import datetime
+import msgspec
+import shutil
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -24,6 +27,24 @@ feeds = [line.rstrip() for line in open(feedsFile)]
 
 for feed in feeds:
     parsedFeed = feedparser.parse(feed)
+
+    # Prepare shared variables for file logging
+    date_string = datetime.now().strftime("%Y%m%d-%H%M%S")
+    clean_feed_name = re.sub(r"[^A-Za-z0-9 ]+", "", feed)
+    diagnosis_dir = "./diagnosis"
+
+    # Download the raw RSS feed and save it to a file
+    rss_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-rss.rss"
+    rss_response = requests.get(feed)
+    with open(rss_filename, "wb") as rss_file:
+        rss_file.write(rss_response.content)
+
+    # Save the serializable feed data to a JSON file
+    json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-json.json"
+    json_version_of_parsed_feed = msgspec.json.encode(parsedFeed)
+    with open(json_filename, "wb") as json_file:
+        json_file.write(json_version_of_parsed_feed)
+
     from_ = parsedFeed.feed.title
     clean_from_original = re.sub(r"[^A-Za-z0-9 ]+", "", from_)
     clean_from = clean_from_original + "- " if clean_from_original != "" else ""
@@ -32,6 +53,11 @@ for feed in feeds:
     try:
         with open(guid_filename) as guid_file:
             mostRecentGuid = guid_file.read()
+        # Copy current version of guids txt file
+        shutil.copy(
+            guid_filename,
+            f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-before.txt",
+        )
     except FileNotFoundError:
         mostRecentGuid = None
     parsedFeedEntryGuids = [
@@ -95,3 +121,8 @@ for feed in feeds:
         guid_output_file = open(guid_filename, "w")
         guid_output_file.write(parsedFeedEntry.id)
         guid_output_file.close()
+        # Copy current version of guids txt file
+        shutil.copy(
+            guid_filename,
+            f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
+        )

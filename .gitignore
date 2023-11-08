@@ -16,7 +16,7 @@
 /dropcaster-docker/audio-openai/**/*
 !/dropcaster-docker/audio-openai/channel.yml
 !/dropcaster-docker/audio-openai/index.html
-!/dropcaster-docker/audio-openai/autumn-forest-400-400.jpg
+!/dropcaster-docker/audio-openai/autumn-forest-openai-400-400.jpg
 /*.json
 !/request*.json
 /dropcaster-docker/new-index.rss
@@ -26,3 +26,4 @@
 !/other-sites/yt-transcribe/
 /other-sites/yt-transcribe/docker-compose.yml
 /dropcaster-docker/dropcaster
+/rss/diagnosis/
