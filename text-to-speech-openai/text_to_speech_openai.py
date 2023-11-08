@@ -5,16 +5,16 @@ import os
 import re
 import uuid
 import math
-from boto3 import Session
-from botocore.exceptions import BotoCoreError, ClientError
-from contextlib import closing
-import os
 import sys
-import subprocess
-from tempfile import gettempdir
-
 from datetime import datetime
 from pydub import AudioSegment
+import openai
+from openai import OpenAI
+
+
+# initialize the API client
+client = OpenAI()
+
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -54,9 +54,6 @@ def text_to_speech(incoming_filename):
         name = os.path.basename(filename.name).replace(".txt", "")
         data = filename.read()
         text = clean_text(data)
-        # initialize the API client
-        session = Session(profile_name="polly")
-        polly = session.client("polly")
         mp3files = []
         # we can send up to 4096 characters per request, so split up the text
         min_step_size = 2000
@@ -83,7 +80,7 @@ def text_to_speech(incoming_filename):
                     first_whitespace_after_min_step_size = (
                         next_text_starter_position + max_step_size
                     )
-                    if next_text_starter_position < len(text):
+                    if first_whitespace_after_min_step_size < len(text):
                         logging.info(
                             f"max_step_size met before end of email {filename.name}"
                         )
@@ -93,43 +90,63 @@ def text_to_speech(incoming_filename):
                 next_text_starter_position = first_whitespace_after_min_step_size
 
                 synthesis_input = text_to_process
-                voice = "Matthew"
-                audio_config = "mp3"
+                voice = "nova"
+                response_format = "mp3"
+                model = "tts-1-hd"
+                speed = "1.0"
                 logging.info(
                     f"Synthesizing speech for file {counter} of at most {max_steps}"
                 )
                 try:
-                    response = polly.synthesize_speech(
-                        Text=synthesis_input,
-                        OutputFormat=audio_config,
-                        VoiceId=voice,
-                        Engine="neural",
+                    response = client.audio.speech.create(
+                        model=model,
+                        voice=voice,
+                        input=synthesis_input,
+                        response_format=response_format,
+                        speed=speed,
                     )
-                except (BotoCoreError, ClientError) as error:
-                    # The service returned an error, exit gracefully
-                    print(error)
+                except openai.error.Timeout as e:
+                    # Handle timeout error, e.g. retry or log
+                    logging.error(f"OpenAI API request timed out: {e}")
                     sys.exit(-1)
-                # Access the audio stream from the response
-                if "AudioStream" in response:
-                    # Note: Closing the stream is important because the service throttles on the
-                    # number of parallel connections. Here we are using contextlib.closing to
-                    # ensure the close method of the stream object will be called automatically
-                    # at the end of the with statement's scope.
-                    with closing(response["AudioStream"]) as stream:
-                        try:
-                            # Open a file for writing the output as a binary stream
-                            mp3_filename = f"{temp_output_dir}/{uuid.uuid4()}.mp3"
-                            with open(mp3_filename, "wb") as out:
-                                # Write the response to the output file.
-                                out.write(stream.read())
-                                logging.info(
-                                    f'Audio content written to file "{mp3_filename}"'
-                                )
-                            mp3files.append(mp3_filename)
-                        except IOError as error:
-                            # Could not write to file, exit gracefully
-                            print(error)
-                            sys.exit(-1)
+                except openai.error.APIError as e:
+                    # Handle API error, e.g. retry or log
+                    logging.error(f"OpenAI API returned an API Error: {e}")
+                    sys.exit(-1)
+                except openai.error.APIConnectionError as e:
+                    # Handle connection error, e.g. check network or log
+                    logging.error(f"OpenAI API request failed to connect: {e}")
+                    sys.exit(-1)
+                except openai.error.InvalidRequestError as e:
+                    # Handle invalid request error, e.g. validate parameters or log
+                    logging.error(f"OpenAI API request was invalid: {e}")
+                    sys.exit(-1)
+                except openai.error.AuthenticationError as e:
+                    # Handle authentication error, e.g. check credentials or log
+                    logging.error(f"OpenAI API request was not authorized: {e}")
+                    sys.exit(-1)
+                except openai.error.PermissionError as e:
+                    # Handle permission error, e.g. check scope or log
+                    logging.error(f"OpenAI API request was not permitted: {e}")
+                    sys.exit(-1)
+                except openai.error.RateLimitError as e:
+                    # Handle rate limit error, e.g. wait or log
+                    logging.error(f"OpenAI API request exceeded rate limit: {e}")
+                    sys.exit(-1)
+                except Exception as error:
+                    # The service returned an error, exit gracefully
+                    logging.error(f"Unknown error: {error}")
+                    sys.exit(-1)
+                try:
+                    # Open a file for writing the output as a binary stream
+                    mp3_filename = f"{temp_output_dir}/{uuid.uuid4()}.mp3"
+                    response.stream_to_file(mp3_filename)
+                    logging.info(f'Audio content written to file "{mp3_filename}"')
+                    mp3files.append(mp3_filename)
+                except IOError as error:
+                    # Could not write to file, exit gracefully
+                    logging.error(f"IO error: {error}")
+                    sys.exit(-1)
 
             mp3_segments = mp3files
             segments = [AudioSegment.from_mp3(f) for f in mp3_segments]
