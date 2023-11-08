@@ -19,7 +19,7 @@ if [ "$newHash" != "$oldHash" ]; then
     start=$(date +%s)
     docker compose --file ./docker-compose.openai.yml run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_SECONDARY}" > ./new-index-openai.rss
     cp ./new-index-openai.rss ./audio-openai/index.rss
-    echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-openai-hash.txt
+    echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio-openai | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-openai-hash.txt
     end=$(date +%s)
     printf 'OpenAI Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
