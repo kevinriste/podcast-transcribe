@@ -8,8 +8,9 @@ import math
 import sys
 from datetime import datetime
 from pydub import AudioSegment
-import openai
 from openai import OpenAI
+
+override_voice = ""
 
 
 # initialize the API client
@@ -91,6 +92,8 @@ def text_to_speech(incoming_filename):
 
                 synthesis_input = text_to_process
                 voice = "nova"
+                if override_voice != "":
+                    voice = override_voice
                 response_format = "mp3"
                 model = "tts-1-hd"
                 speed = "1.0"
@@ -105,34 +108,6 @@ def text_to_speech(incoming_filename):
                         response_format=response_format,
                         speed=speed,
                     )
-                except openai.error.Timeout as e:
-                    # Handle timeout error, e.g. retry or log
-                    logging.error(f"OpenAI API request timed out: {e}")
-                    sys.exit(-1)
-                except openai.error.APIError as e:
-                    # Handle API error, e.g. retry or log
-                    logging.error(f"OpenAI API returned an API Error: {e}")
-                    sys.exit(-1)
-                except openai.error.APIConnectionError as e:
-                    # Handle connection error, e.g. check network or log
-                    logging.error(f"OpenAI API request failed to connect: {e}")
-                    sys.exit(-1)
-                except openai.error.InvalidRequestError as e:
-                    # Handle invalid request error, e.g. validate parameters or log
-                    logging.error(f"OpenAI API request was invalid: {e}")
-                    sys.exit(-1)
-                except openai.error.AuthenticationError as e:
-                    # Handle authentication error, e.g. check credentials or log
-                    logging.error(f"OpenAI API request was not authorized: {e}")
-                    sys.exit(-1)
-                except openai.error.PermissionError as e:
-                    # Handle permission error, e.g. check scope or log
-                    logging.error(f"OpenAI API request was not permitted: {e}")
-                    sys.exit(-1)
-                except openai.error.RateLimitError as e:
-                    # Handle rate limit error, e.g. wait or log
-                    logging.error(f"OpenAI API request exceeded rate limit: {e}")
-                    sys.exit(-1)
                 except Exception as error:
                     # The service returned an error, exit gracefully
                     logging.error(f"Unknown error: {error}")
@@ -157,6 +132,8 @@ def text_to_speech(incoming_filename):
             date = datetime.now().strftime("%Y%m%d")
             name_without_date = name[16:]
             output_filename = f"{final_output_dir}/{name_without_date}-{date}.mp3"
+            if override_voice != "":
+                output_filename = f"{final_output_dir}/{override_voice}-{name_without_date}-{date}.mp3"
 
             logging.info(f"Exporting {output_filename}")
             audio.export(output_filename, format="mp3")
@@ -165,8 +142,9 @@ def text_to_speech(incoming_filename):
             for f in mp3_segments:
                 os.remove(f)
 
-            logging.info("Removing original text file")
-            os.remove(incoming_filename)
+            if override_voice == "":
+                logging.info("Removing original text file")
+                os.remove(incoming_filename)
 
 
 if __name__ == "__main__":
