@@ -31,6 +31,12 @@ def clean_text(text):
     text = re.sub(r'(\r\n|\r|\n){2}Unsubscribe', '', text)
     # get rid of intro 'view this post on the web' text
     text = re.sub(r'View this post on the web at (\r\n|\r|\n){2}', '', text)
+    # get rid of social links at top of Money Illusion posts
+    text = re.sub(r'Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)', '', text)
+    # add punctuation to end of lines without it so that narration pauses briefly
+    text = re.sub(r'(\w)\s*(\r\n|\r|\n)', r'\1.\2', text)
+    # fix pronunciation of Keynesian
+    text = re.sub(r'Keynesian', 'Cainzeean', text, flags=re.IGNORECASE)
     return text
 
 def process_files():
@@ -54,7 +60,6 @@ def text_to_speech(incoming_filename):
         compiled_regex_for_first_whitespace = re.compile(r'(\r\n|\r|\n|\.)+\s+')
         next_text_starter_position = 0
         counter = 0
-
         max_steps = math.floor(1 + len(text) / min_step_size)
         if len(text) < 50000 and len(text) > 0:
             while next_text_starter_position < len(text):
