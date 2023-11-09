@@ -91,7 +91,7 @@ def text_to_speech(incoming_filename):
                 next_text_starter_position = first_whitespace_after_min_step_size
 
                 synthesis_input = text_to_process
-                voice = "nova"
+                voice = "shimmer"
                 if override_voice != "":
                     voice = override_voice
                 response_format = "mp3"
@@ -131,7 +131,9 @@ def text_to_speech(incoming_filename):
 
             date = datetime.now().strftime("%Y%m%d")
             name_without_date = name[16:]
-            output_filename = f"{final_output_dir}/nova-{name_without_date}-{date}.mp3"
+            output_filename = (
+                f"{final_output_dir}/shimmer-{name_without_date}-{date}.mp3"
+            )
             if override_voice != "":
                 output_filename = f"{final_output_dir}/{override_voice}-{name_without_date}-{date}.mp3"
 
