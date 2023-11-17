@@ -12,7 +12,7 @@ def find_duplicate_filenames_with_size(directory):
             seen[name].append((filename, size))
 
     for name, file_list in seen.items():
-        if len(file_list) > 1:
+        if len(file_list) > 1 and len(set(size for _, size in file_list)) > 1:
             print(f"Matching pairs for '{name}':")
             for file, size in file_list:
                 print(f"File: {file} (Size: {size} bytes)")
