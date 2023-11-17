@@ -41,7 +41,9 @@ for feed in feeds:
     json_version_of_parsed_feed = msgspec.json.encode(parsedFeed)
 
     # Sometimes The Money Illusion returns an old version of its feed for some reason. This prevents that from causing processing of old items.
-    parsed_feed_updated_date = parser.parse(parsedFeed.feed.published)
+    parsed_feed_updated_date = parser.parse(parsedFeed.feed.updated).replace(
+        tzinfo=None
+    )
     max_timedelta_since_feed_last_updated = timedelta(days=7)
     timedelta_since_feed_last_updated = now - parsed_feed_updated_date
     if timedelta_since_feed_last_updated > max_timedelta_since_feed_last_updated:
