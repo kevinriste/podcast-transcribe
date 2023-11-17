@@ -9,9 +9,11 @@ from requests_html import HTMLSession
 import pyppeteer
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import msgspec
 import shutil
+
+enable_diagnosis = False
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -29,21 +31,35 @@ for feed in feeds:
     parsedFeed = feedparser.parse(feed)
 
     # Prepare shared variables for file logging
-    date_string = datetime.now().strftime("%Y%m%d-%H%M%S")
+    now = datetime.now()
+    date_string = now.strftime("%Y%m%d-%H%M%S")
     clean_feed_name = re.sub(r"[^A-Za-z0-9 ]+", "", feed)
     diagnosis_dir = "./diagnosis"
-
-    # Download the raw RSS feed and save it to a file
-    rss_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-rss.rss"
-    rss_response = requests.get(feed)
-    with open(rss_filename, "wb") as rss_file:
-        rss_file.write(rss_response.content)
 
     # Save the serializable feed data to a JSON file
     json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-json.json"
     json_version_of_parsed_feed = msgspec.json.encode(parsedFeed)
-    with open(json_filename, "wb") as json_file:
-        json_file.write(json_version_of_parsed_feed)
+
+    # Sometimes The Money Illusion returns an old version of its feed for some reason. This prevents that from causing processing of old items.
+    parsed_feed_updated_date = parser.parse(parsedFeed.feed.published)
+    max_timedelta_since_feed_last_updated = timedelta(days=7)
+    timedelta_since_feed_last_updated = now - parsed_feed_updated_date
+    if timedelta_since_feed_last_updated > max_timedelta_since_feed_last_updated:
+        logging.error(
+            f"Error: {clean_feed_name}-{date_string} was more than 7 days old"
+        )
+
+        # Save the serializable feed data to a JSON file even if diagnosis is disabled
+        if not enable_diagnosis:
+            with open(json_filename, "wb") as json_file:
+                json_file.write(json_version_of_parsed_feed)
+
+        # Go to the next feed and stop processing this one
+        continue
+
+    if enable_diagnosis:
+        with open(json_filename, "wb") as json_file:
+            json_file.write(json_version_of_parsed_feed)
 
     from_ = parsedFeed.feed.title
     clean_from_original = re.sub(r"[^A-Za-z0-9 ]+", "", from_)
