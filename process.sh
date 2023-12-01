@@ -28,15 +28,14 @@ pipenv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Check if podcast files changed"
-echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash-new.txt
-newHash=$(cat audio-hash-new.txt)
+newHash=$(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum)
 oldHash=$(cat audio-hash.txt)
 if [ "$newHash" != "$oldHash" ]; then
     echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Dropcaster"
     start=$(date +%s)
     docker compose --file ./docker-compose-local.yml run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
-    echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash.txt
+    echo $newHash > ./audio-hash.txt
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi

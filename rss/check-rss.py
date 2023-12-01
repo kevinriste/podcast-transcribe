@@ -121,7 +121,9 @@ for feed in feeds:
                 raise e
             html_content = html_fetch.html.html
             html_content_parsed_for_title = bare_extraction(html_content)
-            webpage_text = extract(html_content, include_comments=False)
+            webpage_text = extract(
+                html_content, include_comments=False, favor_recall=True
+            )
             content_text = (
                 html_content_parsed_for_title.get("title") + ".\n" + "\n" + webpage_text
             )
