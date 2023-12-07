@@ -25,7 +25,8 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         clean_from = re.sub(r"[^A-Za-z0-9 ]+", "", from_)
         clean_from = clean_from + "- " if clean_from != "" else ""
         clean_subject = re.sub(r"[^A-Za-z0-9 ]+", "", subject)
-        if clean_subject != "link" and clean_subject != "youtube":
+        clean_subject_lowercase = clean_subject.lower()
+        if clean_subject_lowercase != "link" and clean_subject_lowercase != "youtube":
             output_filename = f"{output_folder}/{date}-{clean_from}{clean_subject}.txt"
             logging.info(f"parsing email: {output_filename}")
             email_text = msg.text
@@ -54,7 +55,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 output_file = open(output_filename, "w")
                 output_file.write(clean_email_text)
                 output_file.close()
-        elif clean_subject == "youtube":
+        elif clean_subject_lowercase == "youtube":
             email_text = msg.text
             email_text = re.sub(r"[^\S]+", "", email_text)
             logging.info(f"fetching youtube audio: {email_text}")
