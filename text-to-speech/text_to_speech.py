@@ -20,6 +20,20 @@ final_output_dir = "../dropcaster-docker/audio"
 # Using regular expressions to clean email text
 def clean_text(text):
     text = "".join(text.decode("utf8"))
+    # Remove three or more consecutive dashes
+    text = re.sub(r"---+", "", text)
+    # Remove URLs from the email text
+    text = re.sub(
+        r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
+        "",
+        text,
+    )
+    # Remove empty square brackets []
+    text = re.sub(r"\[\]", "", text)
+    # Remove empty parentheses ()
+    text = re.sub(r"\(\)", "", text)
+    # Remove empty angle brackets <>
+    text = re.sub(r"<>", "", text)
     # get rid of superfluous non-newline whitespace
     text = re.sub(r"[^\S\r\n]+", " ", text)
     # get rid of unsubscribe text
@@ -30,26 +44,10 @@ def clean_text(text):
     text = re.sub(
         r"Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)", "", text
     )
-    # add punctuation to end of lines without it so that narration pauses briefly
-    text = re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text)
     # fix pronunciation of Keynesian
     text = re.sub(r"Keynesian", "Cainzeean", text, flags=re.IGNORECASE)
-
-    # Remove URLs from the email text
-    text = re.sub(
-        r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
-        "",
-        text,
-    )
-
-    # Remove empty square brackets []
-    text = re.sub(r"\[\]", "", text)
-
-    # Remove empty parentheses ()
-    text = re.sub(r"\(\)", "", text)
-
-    # FRemove empty angle brackets <>
-    text = re.sub(r"<>", "", text)
+    # add punctuation to end of lines without it so that narration pauses briefly
+    text = re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text)
 
     return text
 
