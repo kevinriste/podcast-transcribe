@@ -1,5 +1,29 @@
 #!/bin/bash
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Start Script"
+
+error_handler() {
+    local exit_code=$?
+    debug_message=$(echo "Podcast Transcribe error: '$BASH_COMMAND' with exit code $exit_code")
+    debug_output=$(awk -v date="$FIRST_LOG_DATE" 'print_next {print} $0 ~ date {print; print_next=1}' /home/flog99/process-log.log)
+
+    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Exit code error- sending notification with Gotify"
+    # Send message to Gotify, don't display anything if successful
+    curl --silent --show-error "$GOTIFY_SERVER/message?token=$GOTIFY_TOKEN" -F "title=$debug_message" -F "message=$debug_output" -F "priority=9" > /dev/null
+    echo ""
+
+    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--$debug_message"
+    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--End Script (failure)"
+
+    exit $exit_code
+}
+
+# Trap any error signal (ERR) and call the error_handler function
+trap error_handler ERR
+
+# Enable the script to exit if any command returns a non-zero status
+set -e
+
+FIRST_LOG_DATE=$(TZ=America/Chicago date --iso-8601=seconds)
+echo "$FIRST_LOG_DATE--Main--Start Script"
 export PYENV_ROOT="/home/flog99/.pyenv"
 command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init -)"
@@ -28,14 +52,15 @@ pipenv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Check if podcast files changed"
-newHash=$(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum)
+echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash-new.txt
+newHash=$(cat audio-hash-new.txt)
 oldHash=$(cat audio-hash.txt)
 if [ "$newHash" != "$oldHash" ]; then
     echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Dropcaster"
     start=$(date +%s)
     docker compose --file ./docker-compose-local.yml run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
-    echo $newHash > ./audio-hash.txt
+    echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash.txt
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
@@ -45,4 +70,4 @@ curl "https://${GOOGLE_DOMAIN_2_KEY}@domains.google.com/nic/update?hostname=${GO
 echo ""
 echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Clean up Docker"
 docker system prune -f
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--End Script"
+echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--End Script (success)"
