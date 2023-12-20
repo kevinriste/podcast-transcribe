@@ -10,7 +10,7 @@ from datetime import datetime
 from pydub import AudioSegment
 from google.cloud import texttospeech
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 input_dir = "text-input"
 temp_output_dir = "temp-output"

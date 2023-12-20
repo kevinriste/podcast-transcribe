@@ -15,7 +15,7 @@ import shutil
 
 enable_diagnosis = False
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 output_folder = "../text-to-speech/text-input"
 feedsFile = "feeds.txt"
