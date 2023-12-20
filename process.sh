@@ -1,17 +1,18 @@
 #!/bin/bash
 
+FIRST_LOG_DATE=$1
+
 error_handler() {
     local exit_code=$?
-    debug_message=$(echo "Podcast Transcribe error: '$BASH_COMMAND' with exit code $exit_code")
-    debug_output=$(awk -v date="$FIRST_LOG_DATE" 'print_next {print} $0 ~ date {print; print_next=1}' /home/flog99/process-log.log)
+    local debug_message=$(echo "Podcast Transcribe error: '$BASH_COMMAND' with exit code $exit_code")
+    local debug_output=$(awk -v date="$FIRST_LOG_DATE" 'print_next {print} $0 ~ date {print; print_next=1}' /home/flog99/process-log.log)
 
-    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Exit code error- sending notification with Gotify"
+    echo "Main--Exit code error- sending notification with Gotify"
     # Send message to Gotify, don't display anything if successful
     curl --silent --show-error "$GOTIFY_SERVER/message?token=$GOTIFY_TOKEN" -F "title=$debug_message" -F "message=$debug_output" -F "priority=9" > /dev/null
-    echo ""
 
-    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--$debug_message"
-    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--End Script (failure)"
+    echo "Main--$debug_message"
+    echo "Main--End Script (failure)"
 
     exit $exit_code
 }
@@ -22,41 +23,43 @@ trap error_handler ERR
 # Enable the script to exit if any command returns a non-zero status
 set -e
 
-FIRST_LOG_DATE=$(TZ=America/Chicago date --iso-8601=seconds)
-echo "$FIRST_LOG_DATE--Main--Start Script"
+echo "Main--Start Script"
 export PYENV_ROOT="/home/flog99/.pyenv"
 command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init -)"
 cd /home/flog99/dev/podcast-transcribe/imap
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install IMAP Parse Emails dependencies"
+echo "Main--Install IMAP Parse Emails dependencies"
 pipenv install
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run IMAP Parse Emails script"
+echo "Main--Run IMAP Parse Emails script"
 pipenv run python3 parse_email.py
 cd /home/flog99/dev/podcast-transcribe/rss
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Parse RSS dependencies"
+echo "Main--Install Parse RSS dependencies"
 pipenv install
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Parse RSS script"
+echo "Main--Run Parse RSS script"
 pipenv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google, AWS and OpenAI directories"
+echo "Main--Copy email text to be in Google, AWS and OpenAI directories"
 cp -r text-to-speech/text-input text-to-speech-polly
 cp -r text-to-speech/text-input text-to-speech-openai
 cd text-to-speech
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Remove empty text files"
+echo "Main--Remove empty text files"
 find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Google Text to Speech dependencies"
+echo "Main--Install Google Text to Speech dependencies"
 pipenv install
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Text to Speech script"
+echo "Main--Run Google Text to Speech script"
 pipenv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Check if podcast files changed"
-echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash-new.txt
-newHash=$(cat audio-hash-new.txt)
-oldHash=$(cat audio-hash.txt)
+echo "Main--Check if podcast files changed"
+newHash=$(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum)
+if [ -f audio-hash.txt ]; then
+    oldHash=$(cat audio-hash.txt)
+else
+    oldHash=""
+fi
 if [ "$newHash" != "$oldHash" ]; then
-    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Dropcaster"
+    echo "Main--Run Google Dropcaster"
     start=$(date +%s)
     docker compose --file ./docker-compose-local.yml run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
@@ -64,10 +67,10 @@ if [ "$newHash" != "$oldHash" ]; then
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Send IP to Google DNS"
+echo "Main--Send IP to Google DNS"
 curl "https://${GOOGLE_DOMAIN_1_KEY}@domains.google.com/nic/update?hostname=${GOOGLE_DOMAIN_1}"
 curl "https://${GOOGLE_DOMAIN_2_KEY}@domains.google.com/nic/update?hostname=${GOOGLE_DOMAIN_2}"
 echo ""
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Clean up Docker"
+echo "Main--Clean up Docker"
 docker system prune -f
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--End Script (success)"
+echo "Main--End Script (success)"
