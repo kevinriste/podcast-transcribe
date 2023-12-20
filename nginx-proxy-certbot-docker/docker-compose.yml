@@ -12,6 +12,7 @@ services:
             - './vhost:/etc/nginx/vhost.d'
             - './html:/usr/share/nginx/html'
             - '/var/run/docker.sock:/tmp/docker.sock:ro'
+            - './overrides/im.klt.pw:/etc/nginx/vhost.d/im.klt.pw:ro'
         image: nginxproxy/nginx-proxy
     acme-companion:
         restart: always
