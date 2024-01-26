@@ -47,10 +47,6 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 move_to_podcast = False
             if clean_from == "Ross Douthat- ":
                 move_to_podcast = False
-            if "Jessica Valenti- Abortion Every Day" in output_filename:
-                move_to_podcast = False
-            if "Serious Trouble- " in output_filename:
-                move_to_podcast = False
             if move_to_podcast:
                 output_file = open(output_filename, "w")
                 output_file.write(clean_email_text)
