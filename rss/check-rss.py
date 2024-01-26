@@ -186,6 +186,7 @@ for feed in feeds:
                 )
                 cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
                 snapshots = cdx_api.snapshots()
+                content_text = None
                 for snapshot in snapshots:
                     content_text = fetch_and_process_html(url=snapshot.archive_url)
                     if content_text is not None:
