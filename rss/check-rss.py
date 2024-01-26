@@ -195,8 +195,19 @@ for feed in feeds:
                     save_api = WaybackMachineSaveAPI(original_url, user_agent)
                     save_api.save()
                     new_archive_url = save_api.archive_url
+
+                    send_error_if_save_article_is_partial_download = False
+                    max_timedelta_since_article_added_to_feed = timedelta(days=1)
+                    timedelta_since_article_added_to_feed = now - raw_date
+                    if (
+                        timedelta_since_article_added_to_feed
+                        > max_timedelta_since_article_added_to_feed
+                    ):
+                        send_error_if_save_article_is_partial_download = True
+
                     content_text = fetch_and_process_html(
-                        url=new_archive_url, final_request=True
+                        url=new_archive_url,
+                        final_request=send_error_if_save_article_is_partial_download,
                     )
                 # If we failed to get the real article, stop processing this feed altogether so the article doesn't get skipped next time.
                 if content_text is None:
