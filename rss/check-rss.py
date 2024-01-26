@@ -198,7 +198,9 @@ for feed in feeds:
 
                     send_error_if_save_article_is_partial_download = False
                     max_timedelta_since_article_added_to_feed = timedelta(days=1)
-                    timedelta_since_article_added_to_feed = now - raw_date
+                    timedelta_since_article_added_to_feed = now - raw_date.replace(
+                        tzinfo=None
+                    )
                     if (
                         timedelta_since_article_added_to_feed
                         > max_timedelta_since_article_added_to_feed
