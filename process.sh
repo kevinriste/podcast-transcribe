@@ -67,10 +67,6 @@ if [ "$newHash" != "$oldHash" ]; then
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
-echo "Main--Send IP to Google DNS"
-curl "https://${GOOGLE_DOMAIN_1_KEY}@domains.google.com/nic/update?hostname=${GOOGLE_DOMAIN_1}"
-curl "https://${GOOGLE_DOMAIN_2_KEY}@domains.google.com/nic/update?hostname=${GOOGLE_DOMAIN_2}"
-echo ""
 echo "Main--Clean up Docker"
 docker system prune -f
 echo "Main--End Script (success)"
