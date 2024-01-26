@@ -28,7 +28,6 @@ retry_strategy = Retry(
 # Create an HTTPAdapter with your retry strategy
 adapter = HTTPAdapter(max_retries=retry_strategy)
 
-
 enable_diagnosis = False
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -45,12 +44,16 @@ wayback_feeds = [
 feeds = [line.rstrip() for line in open(feedsFile)]
 
 
-def fetch_and_process_html(url):
+def fetch_and_process_html(url, final_request=False):
     """
     Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
 
     Parameters:
     - url: The URL to fetch the HTML content from.
+    - final_request: boolean indicating if this is the last time the
+       RSS article view is being attempted, meaning that all the
+       previous article views failed and a save was attempted. This
+       is sufficient failure to warrant a gotify notification.
 
     Returns:
     - content_text: The processed HTML content as text, or None if the check fails.
@@ -60,33 +63,12 @@ def fetch_and_process_html(url):
         "The Times is committed to publishing a diversity of letters to the editor",
     ]
 
-    try:
-        with HTMLSession() as session:
-            session.mount("https://", adapter)
-            session.mount("http://", adapter)
-            html_fetch = session.get(url)
-            html_fetch.raise_for_status()
-            html_fetch.html.render(timeout=60)
-    except (
-        requests.HTTPError,
-        requests.ConnectionError,
-        urllib3.exceptions.NewConnectionError,
-        urllib3.exceptions.MaxRetryError,
-        pyppeteer.errors.TimeoutError,
-        pyppeteer.errors.PageError,
-    ) as e:
-        logging.error(f"Error occurred: {e}")
-        logging.info(f"{url} URL caused the issue.")
-        gotify_server = os.environ.get("GOTIFY_SERVER")
-        gotify_token = os.environ.get("GOTIFY_TOKEN")
-        debug_message = "RSS URL catastrophic error"
-        debug_output = f"{url}: {e}"
-
-        gotify_url = f"{gotify_server}/message?token={gotify_token}"
-        data = {"title": debug_message, "message": debug_output, "priority": 9}
-
-        requests.post(gotify_url, data=data)
-        return None
+    with HTMLSession() as session:
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        html_fetch = session.get(url)
+        html_fetch.raise_for_status()
+        html_fetch.html.render(timeout=60)
 
     html_content = html_fetch.html.html
     html_content_parsed_for_title = bare_extraction(html_content)
@@ -107,7 +89,8 @@ def fetch_and_process_html(url):
         gotify_url = f"{gotify_server}/message?token={gotify_token}"
         data = {"title": debug_message, "message": debug_output, "priority": 9}
 
-        requests.post(gotify_url, data=data)
+        if final_request:
+            requests.post(gotify_url, data=data)
         return None
 
     return content_text
@@ -189,18 +172,35 @@ for feed in feeds:
         output_filename = f"{output_folder}/{date}-{clean_from}{clean_subject}.txt"
 
         if feed in wayback_feeds:
-            original_url = parsedFeedEntry.link
-            user_agent = (
-                "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
-            )
-            cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
             try:
+                original_url = parsedFeedEntry.link
+                user_agent = (
+                    "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
+                )
+                cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
                 snapshots = cdx_api.snapshots()
                 for snapshot in snapshots:
                     content_text = fetch_and_process_html(url=snapshot.archive_url)
                     if content_text is not None:
                         break
-            except requests.ConnectionError as e:
+                if content_text is None:
+                    save_api = WaybackMachineSaveAPI(original_url, user_agent)
+                    save_api.save()
+                    new_archive_url = save_api.archive_url
+                    content_text = fetch_and_process_html(
+                        url=new_archive_url, final_request=True
+                    )
+                # If we failed to get the real article, stop processing this feed altogether so the article doesn't get skipped next time.
+                if content_text is None:
+                    break
+            except (
+                requests.HTTPError,
+                requests.ConnectionError,
+                pyppeteer.errors.TimeoutError,
+                pyppeteer.errors.PageError,
+                urllib3.exceptions.NewConnectionError,
+                urllib3.exceptions.MaxRetryError,
+            ) as e:
                 logging.error(f"Error occurred: {e}")
                 logging.info(f"{original_url} URL caused the issue.")
                 gotify_server = os.environ.get("GOTIFY_SERVER")
@@ -212,14 +212,6 @@ for feed in feeds:
                 data = {"title": debug_message, "message": debug_output, "priority": 9}
 
                 requests.post(gotify_url, data=data)
-
-            if content_text is None:
-                save_api = WaybackMachineSaveAPI(original_url, user_agent)
-                save_api.save()
-                new_archive_url = save_api.archive_url
-                content_text = fetch_and_process_html(url=new_archive_url)
-            # If we failed to get the real article, stop processing this feed altogether so the article doesn't get skipped next time.
-            if content_text is None:
                 break
         else:
             soup = BeautifulSoup(parsedFeedEntry.content[0].value, "html.parser")
