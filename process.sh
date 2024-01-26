@@ -59,11 +59,11 @@ else
     oldHash=""
 fi
 if [ "$newHash" != "$oldHash" ]; then
-    echo "Main--Run Google Dropcaster"
+    echo "Main--Run Dropcaster"
     start=$(date +%s)
     docker compose --file ./docker-compose-local.yml run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
-    echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash.txt
+    ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum > ./audio-hash.txt
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
