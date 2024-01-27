@@ -4,6 +4,7 @@ import feedparser
 import requests
 from bs4 import BeautifulSoup
 from waybackpy import WaybackMachineSaveAPI, WaybackMachineCDXServerAPI
+from waybackpy.exceptions import TooManyRequestsError
 from trafilatura import extract, bare_extraction
 from requests_html import HTMLSession
 import pyppeteer
@@ -221,6 +222,7 @@ for feed in feeds:
                 pyppeteer.errors.PageError,
                 urllib3.exceptions.NewConnectionError,
                 urllib3.exceptions.MaxRetryError,
+                TooManyRequestsError,
             ) as e:
                 logging.error(f"Error occurred: {e}")
                 logging.info(f"{original_url} URL caused the issue.")
