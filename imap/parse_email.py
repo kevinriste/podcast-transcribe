@@ -42,15 +42,9 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 clean_email_text = (
                     clean_from + ".\n" + clean_subject + ".\n" + "\n" + clean_email_text
                 )
-            move_to_podcast = True
-            if clean_from == "Paul Krugman- ":
-                move_to_podcast = False
-            if clean_from == "Ross Douthat- ":
-                move_to_podcast = False
-            if move_to_podcast:
-                output_file = open(output_filename, "w")
-                output_file.write(clean_email_text)
-                output_file.close()
+            output_file = open(output_filename, "w")
+            output_file.write(clean_email_text)
+            output_file.close()
         elif clean_subject_lowercase == "youtube":
             email_text = msg.text
             email_text = re.sub(r"[^\S]+", "", email_text)
