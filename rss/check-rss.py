@@ -218,6 +218,7 @@ for feed in feeds:
             except (
                 requests.HTTPError,
                 requests.ConnectionError,
+                requests.exceptions.RetryError,
                 pyppeteer.errors.TimeoutError,
                 pyppeteer.errors.PageError,
                 urllib3.exceptions.NewConnectionError,
