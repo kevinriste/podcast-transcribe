@@ -44,6 +44,10 @@ def clean_text(text):
     text = re.sub(
         r"Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)", "", text
     )
+    # get rid of weird image data/captions in beehiiv emails
+    text = re.sub(
+        r"View image: \(.*?\)(\r\n|\r|\n)?\s*Caption: .*?\s*.*(\r\n|\r|\n)?", "", text
+    )
     # fix pronunciation of Keynesian
     text = re.sub(r"Keynesian", "Cainzeean", text, flags=re.IGNORECASE)
     # add punctuation to end of lines without it so that narration pauses briefly
