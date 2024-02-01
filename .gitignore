@@ -23,7 +23,5 @@
 /dropcaster-docker/new-index-aws.rss
 /dropcaster-docker/new-index-openai.rss
 /other-sites/*
-!/other-sites/yt-transcribe/
-/other-sites/yt-transcribe/docker-compose.yml
 /dropcaster-docker/dropcaster
 /rss/diagnosis/
