@@ -181,6 +181,16 @@ for feed in feeds:
 
         if feed in wayback_feeds:
             try:
+                send_error_with_gotify = False
+                max_timedelta_since_article_added_to_feed = timedelta(days=1)
+                timedelta_since_article_added_to_feed = now - raw_date.replace(
+                    tzinfo=None
+                )
+                if (
+                    timedelta_since_article_added_to_feed
+                    > max_timedelta_since_article_added_to_feed
+                ):
+                    send_error_with_gotify = True
                 original_url = parsedFeedEntry.link
                 user_agent = (
                     "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
@@ -197,20 +207,9 @@ for feed in feeds:
                     save_api.save()
                     new_archive_url = save_api.archive_url
 
-                    send_error_if_save_article_is_partial_download = False
-                    max_timedelta_since_article_added_to_feed = timedelta(days=1)
-                    timedelta_since_article_added_to_feed = now - raw_date.replace(
-                        tzinfo=None
-                    )
-                    if (
-                        timedelta_since_article_added_to_feed
-                        > max_timedelta_since_article_added_to_feed
-                    ):
-                        send_error_if_save_article_is_partial_download = True
-
                     content_text = fetch_and_process_html(
                         url=new_archive_url,
-                        final_request=send_error_if_save_article_is_partial_download,
+                        final_request=send_error_with_gotify,
                     )
                 # If we failed to get the real article, stop processing this feed altogether so the article doesn't get skipped next time.
                 if content_text is None:
@@ -236,7 +235,8 @@ for feed in feeds:
                 gotify_url = f"{gotify_server}/message?token={gotify_token}"
                 data = {"title": debug_message, "message": debug_output, "priority": 9}
 
-                requests.post(gotify_url, data=data)
+                if send_error_with_gotify:
+                    requests.post(gotify_url, data=data)
                 break
         else:
             soup = BeautifulSoup(parsedFeedEntry.content[0].value, "html.parser")
