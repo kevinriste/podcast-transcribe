@@ -40,6 +40,12 @@ def clean_text(text):
     text = re.sub(r"(\r\n|\r|\n){2}Unsubscribe", "", text)
     # get rid of intro 'view this post on the web' text
     text = re.sub(r"View this post on the web at (\r\n|\r|\n){2}", "", text)
+    # get rid of plain text disclaimer on beehiiv emails
+    text = re.sub(
+        r"You are reading a plain text version of this post. For the best experience, copy and paste this link in your browser to view the post online:",
+        "",
+        text,
+    )
     # get rid of social links at top of Money Illusion posts
     text = re.sub(
         r"Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)", "", text
