@@ -8,12 +8,30 @@ import logging
 import requests
 import pyppeteer
 from waybackpy import WaybackMachineSaveAPI
+import markdown
+from bs4 import BeautifulSoup
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 output_folder = "../text-to-speech/text-input"
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
+markdown_email_addresses = [
+    "beehiiv",
+    "garbageday.email",
+]
+
+
+def markdown_to_plain_text(markdown_text):
+    # Convert Markdown to HTML
+    html = markdown.markdown(markdown_text)
+
+    # Use BeautifulSoup to extract text
+    soup = BeautifulSoup(html, features="html.parser")
+    plain_text = soup.get_text()
+
+    return plain_text
+
 
 # get list of email subjects from INBOX folder
 with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
@@ -22,6 +40,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         subject = msg.subject.replace("Fwd: ", "")
         date = msg.date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
         from_ = msg.from_values.name
+        from_email = msg.from_values.email
         clean_from = re.sub(r"[^A-Za-z0-9 ]+", "", from_)
         clean_from = clean_from + "- " if clean_from != "" else ""
         clean_subject = re.sub(r"[^A-Za-z0-9 ]+", "", subject)
@@ -30,6 +49,11 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             output_filename = f"{output_folder}/{date}-{clean_from}{clean_subject}.txt"
             logging.info(f"parsing email: {output_filename}")
             email_text = msg.text
+            if any(
+                markdown_email_address in from_email
+                for markdown_email_address in markdown_email_addresses
+            ):
+                email_text = markdown_to_plain_text(email_text)
             first_clean_email_text = re.sub(
                 r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
                 "",
