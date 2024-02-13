@@ -141,9 +141,18 @@ def text_to_speech(incoming_filename):
             logging.info(f"Stitching together {len(segments)} mp3 files for {name}")
             audio = functools.reduce(lambda a, b: a + b, segments)
 
-            date = datetime.now().strftime("%Y%m%d")
+            current_datetime = datetime.now().strftime("%Y%m%d")
+            date_and_dash_from_text_file = name[:16]
             name_without_date = name[16:]
-            output_filename = f"{final_output_dir}/{name_without_date}-{date}.mp3"
+            # Check if "-" exists in name_without_date
+            dash_index = name_without_date.find("-")
+
+            if dash_index != -1:
+                # If "-" exists, insert the date after the first "-" with an additional "-" after it
+                output_filename = f"{final_output_dir}/{name_without_date[:dash_index+1]} {date_and_dash_from_text_file} {name_without_date[dash_index+1:]}-{current_datetime}.mp3"
+            else:
+                # If "-" does not exist, add "-" before and after the date at the end
+                output_filename = f"{final_output_dir}/{name_without_date}-{date_and_dash_from_text_file}{current_datetime}.mp3"
 
             logging.info(f"Exporting {output_filename}")
             audio.export(output_filename, format="mp3")
