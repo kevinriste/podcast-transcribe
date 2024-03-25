@@ -182,7 +182,7 @@ for feed in feeds:
         if feed in wayback_feeds:
             try:
                 send_error_with_gotify = False
-                max_timedelta_since_article_added_to_feed = timedelta(days=1)
+                max_timedelta_since_article_added_to_feed = timedelta(days=2)
                 timedelta_since_article_added_to_feed = now - raw_date.replace(
                     tzinfo=None
                 )
