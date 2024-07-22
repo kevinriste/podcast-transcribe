@@ -66,12 +66,14 @@ def fetch_and_process_html(url, final_request=False):
         "The Times is committed to publishing a diversity of letters to the editor",
     ]
 
+    logging.info(f"Fetching {url}")
+
     with HTMLSession() as session:
         session.mount("https://", adapter)
         session.mount("http://", adapter)
         html_fetch = session.get(url)
         html_fetch.raise_for_status()
-        html_fetch.html.render(timeout=120)
+        html_fetch.html.render(timeout=60)
 
     html_content = html_fetch.html.html
     html_content_parsed_for_title = bare_extraction(html_content)
