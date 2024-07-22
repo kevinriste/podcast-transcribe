@@ -1,21 +1,23 @@
-import re
-from dateutil import parser
-import feedparser
-import requests
-from bs4 import BeautifulSoup
-import waybackpy
-from waybackpy import WaybackMachineSaveAPI, WaybackMachineCDXServerAPI
-from trafilatura import extract, bare_extraction
-from requests_html import HTMLSession
-import pyppeteer
+import json
 import logging
 import os
-from datetime import datetime, timedelta
-import msgspec
+import re
 import shutil
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
+from datetime import datetime, timedelta
+
+import feedparser
+import msgspec
+import pyppeteer
+import requests
 import urllib3
+import waybackpy
+from bs4 import BeautifulSoup
+from dateutil import parser
+from requests.adapters import HTTPAdapter
+from requests_html import HTMLSession
+from trafilatura import bare_extraction, extract
+from urllib3.util.retry import Retry
+from waybackpy import WaybackMachineCDXServerAPI, WaybackMachineSaveAPI
 
 # Create a Retry object with zero retries
 retry_strategy = Retry(
@@ -69,7 +71,7 @@ def fetch_and_process_html(url, final_request=False):
         session.mount("http://", adapter)
         html_fetch = session.get(url)
         html_fetch.raise_for_status()
-        html_fetch.html.render(timeout=60)
+        html_fetch.html.render(timeout=120)
 
     html_content = html_fetch.html.html
     html_content_parsed_for_title = bare_extraction(html_content)
@@ -126,10 +128,8 @@ for feed in feeds:
                 f"Error: {clean_feed_name}-{date_string} was more than 30 days old"
             )
 
-            # Save the serializable feed data to a JSON file even if diagnosis is disabled
-            if not enable_diagnosis:
-                with open(json_filename, "wb") as json_file:
-                    json_file.write(json_version_of_parsed_feed)
+            with open(json_filename, "wb") as json_file:
+                json_file.write(json_version_of_parsed_feed)
         else:
             logging.info(f"{clean_feed_name}-{date_string} was more than 7 days old")
 
@@ -149,10 +149,11 @@ for feed in feeds:
         with open(guid_filename) as guid_file:
             mostRecentGuid = guid_file.read()
         # Copy current version of guids txt file
-        shutil.copy(
-            guid_filename,
-            f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-before.txt",
-        )
+        if enable_diagnosis:
+            shutil.copy(
+                guid_filename,
+                f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-before.txt",
+            )
     except FileNotFoundError:
         mostRecentGuid = None
     parsedFeedEntryGuids = [
@@ -197,8 +198,34 @@ for feed in feeds:
                 )
                 cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
                 snapshots = cdx_api.snapshots()
+                sorted_snapshots = sorted(
+                    snapshots, key=lambda x: x.datetime_timestamp, reverse=True
+                )
+                two_most_recent_snapshots = sorted_snapshots[:2]
+
+                if send_error_with_gotify or enable_diagnosis:
+                    # Function to convert a CDXSnapshot object to a dictionary dynamically
+                    def snapshot_to_dict(snapshot):
+                        result = {}
+                        for attr in dir(snapshot):
+                            if not attr.startswith("_") and not callable(
+                                getattr(snapshot, attr)
+                            ):
+                                value = getattr(snapshot, attr)
+                                if isinstance(value, datetime):
+                                    value = value.isoformat()
+                                result[attr] = value
+                        return result
+
+                    snapshots_list = [
+                        snapshot_to_dict(snapshot) for snapshot in snapshots
+                    ]
+                    snapshots_json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-snapshots-json.json"
+                    with open(snapshots_json_filename, "w") as json_file:
+                        json.dump(snapshots_list, json_file, indent=2)
+
                 content_text = None
-                for snapshot in snapshots:
+                for snapshot in two_most_recent_snapshots:
                     content_text = fetch_and_process_html(url=snapshot.archive_url)
                     if content_text is not None:
                         break
@@ -255,7 +282,8 @@ for feed in feeds:
         guid_output_file.close()
         # Copy new version of guids txt file
         date_string = datetime.now().strftime("%Y%m%d-%H%M%S")
-        shutil.copy(
-            guid_filename,
-            f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
-        )
+        if enable_diagnosis:
+            shutil.copy(
+                guid_filename,
+                f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
+            )
