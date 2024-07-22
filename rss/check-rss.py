@@ -197,7 +197,7 @@ for feed in feeds:
                     "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
                 )
                 cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
-                snapshots = cdx_api.snapshots()
+                snapshots = list(cdx_api.snapshots())
                 sorted_snapshots = sorted(
                     snapshots, key=lambda x: x.datetime_timestamp, reverse=True
                 )
