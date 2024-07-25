@@ -228,63 +228,62 @@ for feed in feeds:
 
                 content_text = None
 
-                if not send_error_with_gotify:
-                    for snapshot in two_most_recent_snapshots:
-                        content_text = fetch_and_process_html(url=snapshot.archive_url)
-                        if content_text is not None:
-                            break
+                this_year = datetime.now().year
+                calendar_captures_api_url_this_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={this_year}"
+                this_year_response = requests.get(calendar_captures_api_url_this_year)
+                this_year_data = this_year_response.json()
+
+                last_year = this_year - 1
+                calendar_captures_api_url_last_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={last_year}"
+                last_year_response = requests.get(calendar_captures_api_url_last_year)
+                last_year_data = last_year_response.json()                    
+
+                # Collection name we are interested in
+                collection_name = "global.nytimes.com"
+
+                # Extract the collections and items
+                this_year_collections = this_year_data.get('colls') or []
+                this_year_items = this_year_data.get('items') or []
+
+                # Extract the collections and items
+                last_year_collections = last_year_data.get('colls') or []
+                last_year_items = last_year_data.get('items') or []
+                
+                # Filter items by the "global.nytimes.com" collection
+                filtered_captures = []
+                
+                for item in this_year_items:
+                    timestamp, status_code, collection_index = item
+                    if collection_index < len(this_year_collections):
+                        collection = this_year_collections[collection_index]
+                        if collection_name in collection:
+                            timestamp_str = str(timestamp)
+                            if len(timestamp_str) == 9:
+                                timestamp_str = timestamp_str.zfill(10)
+                            formatted_timestamp = str(this_year) + timestamp_str
+                            final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
+                            filtered_captures.append(final_url)
+
+                for item in last_year_items:
+                    timestamp, status_code, collection_index = item
+                    if collection_index < len(last_year_collections):
+                        collection = last_year_collections[collection_index]
+                        if collection_name in collection:
+                            timestamp_str = str(timestamp)
+                            if len(timestamp_str) == 9:
+                                timestamp_str = timestamp_str.zfill(10)
+                            formatted_timestamp = str(this_year) + timestamp_str
+                            final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
+                            filtered_captures.append(final_url)
+
+                for filtered_capture in filtered_captures:
+                    content_text = fetch_and_process_html(url=filtered_capture)
+                    if content_text is not None:
+                        break
 
                 if content_text is None:
-                    this_year = datetime.now().year
-                    calendar_captures_api_url_this_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={this_year}"
-                    this_year_response = requests.get(calendar_captures_api_url_this_year)
-                    this_year_data = this_year_response.json()
-
-                    last_year = this_year - 1
-                    calendar_captures_api_url_last_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={last_year}"
-                    last_year_response = requests.get(calendar_captures_api_url_last_year)
-                    last_year_data = last_year_response.json()                    
-
-                    # Collection name we are interested in
-                    collection_name = "global.nytimes.com"
-
-                    # Extract the collections and items
-                    this_year_collections = this_year_data.get('colls') or []
-                    this_year_items = this_year_data.get('items') or []
-
-                    # Extract the collections and items
-                    last_year_collections = last_year_data.get('colls') or []
-                    last_year_items = last_year_data.get('items') or []
-                    
-                    # Filter items by the "global.nytimes.com" collection
-                    filtered_captures = []
-                    
-                    for item in this_year_items:
-                        timestamp, status_code, collection_index = item
-                        if collection_index < len(this_year_collections):
-                            collection = this_year_collections[collection_index]
-                            if collection_name in collection:
-                                timestamp_str = str(timestamp)
-                                if len(timestamp_str) == 9:
-                                    timestamp_str = timestamp_str.zfill(10)
-                                formatted_timestamp = str(this_year) + timestamp_str
-                                final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
-                                filtered_captures.append(final_url)
-
-                    for item in last_year_items:
-                        timestamp, status_code, collection_index = item
-                        if collection_index < len(last_year_collections):
-                            collection = last_year_collections[collection_index]
-                            if collection_name in collection:
-                                timestamp_str = str(timestamp)
-                                if len(timestamp_str) == 9:
-                                    timestamp_str = timestamp_str.zfill(10)
-                                formatted_timestamp = str(this_year) + timestamp_str
-                                final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
-                                filtered_captures.append(final_url)
-
-                    for filtered_capture in filtered_captures:
-                        content_text = fetch_and_process_html(url=filtered_capture)
+                    for snapshot in two_most_recent_snapshots:
+                        content_text = fetch_and_process_html(url=snapshot.archive_url)
                         if content_text is not None:
                             break
 
