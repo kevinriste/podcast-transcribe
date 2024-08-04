@@ -68,5 +68,6 @@ if [ "$newHash" != "$oldHash" ]; then
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
 echo "Main--Clean up Docker"
-docker system prune -f
+docker container prune
+docker volume prune
 echo "Main--End Script (success)"
