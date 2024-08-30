@@ -79,7 +79,10 @@ def fetch_and_process_html(url, final_request=False):
     html_content_parsed_for_title = bare_extraction(html_content)
     webpage_text = extract(html_content, include_comments=False, favor_recall=True)
     content_text = (
-        (html_content_parsed_for_title.get("title") or "") + ".\n" + "\n" + (webpage_text or "")
+        (html_content_parsed_for_title.get("title") or "")
+        + ".\n"
+        + "\n"
+        + (webpage_text or "")
     )
 
     if all(phrase not in content_text for phrase in check_phrases):
@@ -236,22 +239,22 @@ for feed in feeds:
                 last_year = this_year - 1
                 calendar_captures_api_url_last_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={last_year}"
                 last_year_response = requests.get(calendar_captures_api_url_last_year)
-                last_year_data = last_year_response.json()                    
+                last_year_data = last_year_response.json()
 
                 # Collection name we are interested in
                 collection_name = "global.nytimes.com"
 
                 # Extract the collections and items
-                this_year_collections = this_year_data.get('colls') or []
-                this_year_items = this_year_data.get('items') or []
+                this_year_collections = this_year_data.get("colls") or []
+                this_year_items = this_year_data.get("items") or []
 
                 # Extract the collections and items
-                last_year_collections = last_year_data.get('colls') or []
-                last_year_items = last_year_data.get('items') or []
-                
+                last_year_collections = last_year_data.get("colls") or []
+                last_year_items = last_year_data.get("items") or []
+
                 # Filter items by the "global.nytimes.com" collection
                 filtered_captures = []
-                
+
                 for item in this_year_items:
                     timestamp, status_code, collection_index = item
                     if collection_index < len(this_year_collections):
