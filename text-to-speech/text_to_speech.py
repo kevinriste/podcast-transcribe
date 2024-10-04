@@ -1,14 +1,14 @@
 import functools
-from glob import glob
 import logging
+import math
 import os
 import re
 import uuid
-import math
-
 from datetime import datetime
-from pydub import AudioSegment
+from glob import glob
+
 from google.cloud import texttospeech
+from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -24,7 +24,7 @@ def clean_text(text):
     text = re.sub(r"---+", "", text)
     # Remove URLs from the email text
     text = re.sub(
-        r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
+        r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
         "",
         text,
     )
