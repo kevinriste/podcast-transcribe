@@ -19,6 +19,8 @@ from trafilatura import bare_extraction, extract
 from urllib3.util.retry import Retry
 from waybackpy import WaybackMachineCDXServerAPI, WaybackMachineSaveAPI
 
+local_scraper_url = "http://localhost:3000/fetch"
+
 # Create a Retry object with zero retries
 retry_strategy = Retry(
     total=0,  # Total number of retries to allow
@@ -47,16 +49,15 @@ wayback_feeds = [
 feeds = [line.rstrip() for line in open(feedsFile)]
 
 
-def fetch_and_process_html(url, final_request=False):
+def fetch_and_process_html(url, final_request=False, headers=None, request_body=None):
     """
     Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
 
     Parameters:
     - url: The URL to fetch the HTML content from.
-    - final_request: boolean indicating if this is the last time the
-       RSS article view is being attempted, meaning that all the
-       previous article views failed and a save was attempted. This
-       is sufficient failure to warrant a gotify notification.
+    - final_request: Boolean indicating if this is the last attempt to fetch the article.
+    - headers: Optional dictionary of headers to include in the request (GET or POST).
+    - request_body: Optional dictionary of data for making a POST request instead of a GET.
 
     Returns:
     - content_text: The processed HTML content as text, or None if the check fails.
@@ -71,11 +72,21 @@ def fetch_and_process_html(url, final_request=False):
     with HTMLSession() as session:
         session.mount("https://", adapter)
         session.mount("http://", adapter)
-        html_fetch = session.get(url)
-        html_fetch.raise_for_status()
-        html_fetch.html.render(timeout=60)
 
-    html_content = html_fetch.html.html
+        # Handle POST request if request_body is provided
+        if request_body:
+            logging.info(f"Making POST request to {url}")
+            response = session.post(url, headers=headers, json=request_body)
+        else:
+            logging.info(f"Making GET request to {url}")
+            response = session.get(url, headers=headers)
+
+        response.raise_for_status()
+
+        # Render the HTML content
+        response.html.render(timeout=60)
+
+    html_content = response.html.html if not request_body else response.text
     html_content_parsed_for_title = bare_extraction(html_content)
     webpage_text = extract(html_content, include_comments=False, favor_recall=True)
     content_text = (
@@ -87,7 +98,7 @@ def fetch_and_process_html(url, final_request=False):
 
     if all(phrase not in content_text for phrase in check_phrases):
         logging.error(
-            f"Wayback Machine's version of {url} did not include the full article."
+            f"Kevin's or Wayback Machine's version of {url} did not include the full article."
         )
         gotify_server = os.environ.get("GOTIFY_SERVER")
         gotify_token = os.environ.get("GOTIFY_TOKEN")
@@ -201,93 +212,101 @@ for feed in feeds:
                     ):
                         send_error_with_gotify = True
                     original_url = parsedFeedEntry.link
-                    user_agent = "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
-                    cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
-                    snapshots = list(cdx_api.snapshots())
-                    sorted_snapshots = sorted(
-                        snapshots, key=lambda x: x.datetime_timestamp, reverse=True
+
+                    content_text = fetch_and_process_html(
+                        url=local_scraper_url,
+                        headers={"Content-Type": "application/json"},
+                        request_body={"url": original_url},
                     )
-                    two_most_recent_snapshots = sorted_snapshots[:2]
 
-                    if send_error_with_gotify or enable_diagnosis:
-                        # Function to convert a CDXSnapshot object to a dictionary dynamically
-                        def snapshot_to_dict(snapshot):
-                            result = {}
-                            for attr in dir(snapshot):
-                                if not attr.startswith("_") and not callable(
-                                    getattr(snapshot, attr)
-                                ):
-                                    value = getattr(snapshot, attr)
-                                    if isinstance(value, datetime):
-                                        value = value.isoformat()
-                                    result[attr] = value
-                            return result
+                    if content_text is None:
+                        user_agent = "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
+                        cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
+                        snapshots = list(cdx_api.snapshots())
+                        sorted_snapshots = sorted(
+                            snapshots, key=lambda x: x.datetime_timestamp, reverse=True
+                        )
+                        two_most_recent_snapshots = sorted_snapshots[:2]
 
-                        snapshots_list = [
-                            snapshot_to_dict(snapshot) for snapshot in snapshots
-                        ]
-                        snapshots_json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-snapshots-json.json"
-                        with open(snapshots_json_filename, "w") as json_file:
-                            json.dump(snapshots_list, json_file, indent=2)
+                        if send_error_with_gotify or enable_diagnosis:
+                            # Function to convert a CDXSnapshot object to a dictionary dynamically
+                            def snapshot_to_dict(snapshot):
+                                result = {}
+                                for attr in dir(snapshot):
+                                    if not attr.startswith("_") and not callable(
+                                        getattr(snapshot, attr)
+                                    ):
+                                        value = getattr(snapshot, attr)
+                                        if isinstance(value, datetime):
+                                            value = value.isoformat()
+                                        result[attr] = value
+                                return result
 
-                    content_text = None
+                            snapshots_list = [
+                                snapshot_to_dict(snapshot) for snapshot in snapshots
+                            ]
+                            snapshots_json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-snapshots-json.json"
+                            with open(snapshots_json_filename, "w") as json_file:
+                                json.dump(snapshots_list, json_file, indent=2)
 
-                    this_year = datetime.now().year
-                    calendar_captures_api_url_this_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={this_year}"
-                    this_year_response = requests.get(
-                        calendar_captures_api_url_this_year
-                    )
-                    this_year_data = this_year_response.json()
+                        content_text = None
 
-                    last_year = this_year - 1
-                    calendar_captures_api_url_last_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={last_year}"
-                    last_year_response = requests.get(
-                        calendar_captures_api_url_last_year
-                    )
-                    last_year_data = last_year_response.json()
+                        this_year = datetime.now().year
+                        calendar_captures_api_url_this_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={this_year}"
+                        this_year_response = requests.get(
+                            calendar_captures_api_url_this_year
+                        )
+                        this_year_data = this_year_response.json()
 
-                    # Collection name we are interested in
-                    collection_name = "global.nytimes.com"
+                        last_year = this_year - 1
+                        calendar_captures_api_url_last_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={last_year}"
+                        last_year_response = requests.get(
+                            calendar_captures_api_url_last_year
+                        )
+                        last_year_data = last_year_response.json()
 
-                    # Extract the collections and items
-                    this_year_collections = this_year_data.get("colls") or []
-                    this_year_items = this_year_data.get("items") or []
+                        # Collection name we are interested in
+                        collection_name = "global.nytimes.com"
 
-                    # Extract the collections and items
-                    last_year_collections = last_year_data.get("colls") or []
-                    last_year_items = last_year_data.get("items") or []
+                        # Extract the collections and items
+                        this_year_collections = this_year_data.get("colls") or []
+                        this_year_items = this_year_data.get("items") or []
 
-                    # Filter items by the "global.nytimes.com" collection
-                    filtered_captures = []
+                        # Extract the collections and items
+                        last_year_collections = last_year_data.get("colls") or []
+                        last_year_items = last_year_data.get("items") or []
 
-                    for item in this_year_items:
-                        timestamp, status_code, collection_index = item
-                        if collection_index < len(this_year_collections):
-                            collection = this_year_collections[collection_index]
-                            if collection_name in collection:
-                                timestamp_str = str(timestamp)
-                                if len(timestamp_str) == 9:
-                                    timestamp_str = timestamp_str.zfill(10)
-                                formatted_timestamp = str(this_year) + timestamp_str
-                                final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
-                                filtered_captures.append(final_url)
+                        # Filter items by the "global.nytimes.com" collection
+                        filtered_captures = []
 
-                    for item in last_year_items:
-                        timestamp, status_code, collection_index = item
-                        if collection_index < len(last_year_collections):
-                            collection = last_year_collections[collection_index]
-                            if collection_name in collection:
-                                timestamp_str = str(timestamp)
-                                if len(timestamp_str) == 9:
-                                    timestamp_str = timestamp_str.zfill(10)
-                                formatted_timestamp = str(this_year) + timestamp_str
-                                final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
-                                filtered_captures.append(final_url)
+                        for item in this_year_items:
+                            timestamp, status_code, collection_index = item
+                            if collection_index < len(this_year_collections):
+                                collection = this_year_collections[collection_index]
+                                if collection_name in collection:
+                                    timestamp_str = str(timestamp)
+                                    if len(timestamp_str) == 9:
+                                        timestamp_str = timestamp_str.zfill(10)
+                                    formatted_timestamp = str(this_year) + timestamp_str
+                                    final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
+                                    filtered_captures.append(final_url)
 
-                    for filtered_capture in filtered_captures:
-                        content_text = fetch_and_process_html(url=filtered_capture)
-                        if content_text is not None:
-                            break
+                        for item in last_year_items:
+                            timestamp, status_code, collection_index = item
+                            if collection_index < len(last_year_collections):
+                                collection = last_year_collections[collection_index]
+                                if collection_name in collection:
+                                    timestamp_str = str(timestamp)
+                                    if len(timestamp_str) == 9:
+                                        timestamp_str = timestamp_str.zfill(10)
+                                    formatted_timestamp = str(this_year) + timestamp_str
+                                    final_url = f"https://web.archive.org/web/{formatted_timestamp}/{original_url}"
+                                    filtered_captures.append(final_url)
+
+                        for filtered_capture in filtered_captures:
+                            content_text = fetch_and_process_html(url=filtered_capture)
+                            if content_text is not None:
+                                break
 
                     if content_text is None:
                         for snapshot in two_most_recent_snapshots:
@@ -297,15 +316,18 @@ for feed in feeds:
                             if content_text is not None:
                                 break
 
-                    if content_text is None:
-                        save_api = WaybackMachineSaveAPI(original_url, user_agent)
-                        save_api.save()
-                        new_archive_url = save_api.archive_url
+                    # Temporary comment out of save API call since Wayback isn't working
+                    #
+                    # if content_text is None:
+                    #     save_api = WaybackMachineSaveAPI(original_url, user_agent)
+                    #     save_api.save()
+                    #     new_archive_url = save_api.archive_url
 
-                        content_text = fetch_and_process_html(
-                            url=new_archive_url,
-                            final_request=send_error_with_gotify,
-                        )
+                    #     content_text = fetch_and_process_html(
+                    #         url=new_archive_url,
+                    #         final_request=send_error_with_gotify,
+                    #     )
+
                     # If we failed to get the real article, stop processing this feed altogether so the article doesn't get skipped next time.
                     if content_text is None:
                         break
