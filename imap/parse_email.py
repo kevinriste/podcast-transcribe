@@ -1,15 +1,15 @@
+import logging
 import os
 import re
-from trafilatura import extract, bare_extraction
-from requests_html import HTMLSession
-from imap_tools import MailBox, AND, MailMessageFlags
-import youtube_dl
-import logging
-import requests
-import pyppeteer
-from waybackpy import WaybackMachineSaveAPI
+
 import markdown
+import youtube_dl
 from bs4 import BeautifulSoup
+from imap_tools import AND, MailBox, MailMessageFlags
+from requests.adapters import HTTPAdapter
+from requests_html import HTMLSession
+from trafilatura import bare_extraction, extract
+from urllib3.util.retry import Retry
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -20,6 +20,19 @@ markdown_email_addresses = [
     "beehiiv",
     "garbageday.email",
 ]
+local_scraper_url = "http://localhost:3001/fetch"
+
+# Create a Retry object with zero retries
+retry_strategy = Retry(
+    total=0,  # Total number of retries to allow
+    connect=0,  # Number of connection-related retries to allow
+    read=0,  # Number of read-related retries to allow
+    redirect=0,  # Number of redirection-related retries to allow
+    status=0,  # Number of retries to allow based on HTTP response status codes
+)
+
+# Create an HTTPAdapter with your retry strategy
+adapter = HTTPAdapter(max_retries=retry_strategy)
 
 
 def markdown_to_plain_text(markdown_text):
@@ -31,6 +44,56 @@ def markdown_to_plain_text(markdown_text):
     plain_text = soup.get_text()
 
     return plain_text
+
+
+def fetch_and_process_html(url, final_request=False, headers=None, request_body=None):
+    """
+    Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
+
+    Parameters:
+    - url: The URL to fetch the HTML content from.
+    - final_request: Boolean indicating if this is the last attempt to fetch the article.
+    - headers: Optional dictionary of headers to include in the request (GET or POST).
+    - request_body: Optional dictionary of data for making a POST request instead of a GET.
+
+    Returns:
+    - content_text: The processed HTML content as text, or None if the check fails.
+    """
+    try:
+        logging.info(f"Fetching {url}")
+
+        with HTMLSession() as session:
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+
+            # Handle POST request if request_body is provided
+            if request_body:
+                logging.info(f"Making POST request to {url}")
+                response = session.post(url, headers=headers, json=request_body)
+            else:
+                logging.info(f"Making GET request to {url}")
+                response = session.get(url, headers=headers)
+
+            response.raise_for_status()
+
+            # Render the HTML content
+            response.html.render(timeout=60)
+
+        html_content = response.html.html if not request_body else response.text
+        html_content_parsed_for_title = bare_extraction(html_content)
+        webpage_text = extract(html_content, include_comments=False, favor_recall=True)
+        content_text = (
+            (html_content_parsed_for_title.get("title") or "")
+            + ".\n"
+            + "\n"
+            + (webpage_text or "")
+        )
+
+        return html_content_parsed_for_title, content_text
+
+    except Exception as e:
+        logging.error(f"Error occurred: {e}")
+        return None, None
 
 
 # get list of email subjects from INBOX folder
@@ -99,28 +162,16 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             email_text = re.sub(r"[^\S]+", "", email_text)
             logging.info(f"fetching webpage: {email_text}")
             original_url = email_text
-            user_agent = (
-                "Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
+            html_content_parsed_for_title, webpage_text = fetch_and_process_html(
+                url=local_scraper_url,
+                headers={"Content-Type": "application/json"},
+                request_body={"url": original_url},
             )
-            save_api = WaybackMachineSaveAPI(original_url, user_agent)
-            save_api.save()
-            archive_url = save_api.archive_url
-            session = HTMLSession()
-            html_fetch = session.get(archive_url)
-            try:
-                html_fetch.raise_for_status()
-                html_fetch.html.render(timeout=60)
-            except (requests.HTTPError, pyppeteer.errors.TimeoutError) as e:
-                logging.info(f"{archive_url} URL caused the issue.")
-                raise e
-            html_content = html_fetch.html.html
-            html_content_parsed_for_title = bare_extraction(html_content)
-            webpage_text = extract(
-                html_content, include_comments=False, favor_recall=True
-            )
-            webpage_text = (
-                html_content_parsed_for_title.get("title") + ".\n" + "\n" + webpage_text
-            )
+            if webpage_text is None:
+                logging.info(
+                    f"could not parse webpage, saving for next time: {email_text}"
+                )
+                continue
             clean_title = re.sub(
                 r"[^A-Za-z0-9 ]+", "", html_content_parsed_for_title.get("title")
             )
