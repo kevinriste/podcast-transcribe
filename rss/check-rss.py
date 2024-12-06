@@ -17,9 +17,9 @@ from requests.adapters import HTTPAdapter
 from requests_html import HTMLSession
 from trafilatura import bare_extraction, extract
 from urllib3.util.retry import Retry
-from waybackpy import WaybackMachineCDXServerAPI, WaybackMachineSaveAPI
+from waybackpy import WaybackMachineCDXServerAPI
 
-local_scraper_url = "http://localhost:3000/fetch"
+local_scraper_url = "http://localhost:3002/fetch"
 
 # Create a Retry object with zero retries
 retry_strategy = Retry(
