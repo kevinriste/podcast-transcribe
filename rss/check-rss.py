@@ -95,10 +95,10 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
         finally:
             browser.close()
 
-    html_content_parsed_for_title = bare_extraction(html_content, as_dict=True)
+    html_content_parsed_for_title = bare_extraction(html_content, with_metadata=True)
     webpage_text = extract(html_content, include_comments=False, favor_recall=True)
     content_text = (
-        (html_content_parsed_for_title.get("title") or "")
+        (html_content_parsed_for_title.as_dict().get("title") or "")
         + ".\n"
         + "\n"
         + (webpage_text or "")
