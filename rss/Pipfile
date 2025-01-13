@@ -9,7 +9,7 @@ python-dateutil = "*"
 beautifulsoup4 = "*"
 waybackpy = "*"
 trafilatura = "*"
-requests-html = "*"
+playwright = "*"
 msgspec = "*"
 
 [dev-packages]
