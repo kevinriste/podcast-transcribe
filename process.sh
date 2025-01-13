@@ -29,9 +29,11 @@ command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init -)"
 cd /home/flog99/dev/podcast-transcribe/imap
 echo "Main--Install IMAP Parse Emails dependencies"
-pipenv install
+/home/flog99/.local/bin/uv sync
 echo "Main--Run IMAP Parse Emails script"
-pipenv run python3 parse_email.py
+/home/flog99/.local/bin/uv run python3 parse_email.py
+echo "Main--Ensure Playwright is up to date"
+/home/flog99/.local/bin/uv run playwright install
 cd /home/flog99/dev/podcast-transcribe/rss
 echo "Main--Install Parse RSS dependencies"
 /home/flog99/.local/bin/uv sync
@@ -48,9 +50,9 @@ cd text-to-speech
 echo "Main--Remove empty text files"
 find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;
 echo "Main--Install Google Text to Speech dependencies"
-pipenv install
+/home/flog99/.local/bin/uv sync
 echo "Main--Run Google Text to Speech script"
-pipenv run python3 text_to_speech.py
+/home/flog99/.local/bin/uv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
 echo "Main--Check if podcast files changed"
