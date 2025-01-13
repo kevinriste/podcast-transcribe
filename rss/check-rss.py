@@ -7,14 +7,14 @@ from datetime import datetime, timedelta
 
 import feedparser
 import msgspec
-import pyppeteer
+import playwright.sync_api
 import requests
 import urllib3
 import waybackpy
 from bs4 import BeautifulSoup
 from dateutil import parser
+from playwright.sync_api import sync_playwright
 from requests.adapters import HTTPAdapter
-from requests_html import HTMLSession
 from trafilatura import bare_extraction, extract
 from urllib3.util.retry import Retry
 from waybackpy import WaybackMachineCDXServerAPI
@@ -68,25 +68,34 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
 
     logging.info(f"Fetching {url}")
 
-    with HTMLSession() as session:
-        session.mount("https://", adapter)
-        session.mount("http://", adapter)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+        page = context.new_page()
 
-        # Handle POST request if request_body is provided
-        if request_body:
-            logging.info(f"Making POST request to {url}")
-            response = session.post(url, headers=headers, json=request_body)
-        else:
-            logging.info(f"Making GET request to {url}")
-            response = session.get(url, headers=headers)
+        try:
+            if request_body:
+                logging.info(f"Making GET request to {url} with url query parameter")
+                page.goto(
+                    f"{url}?url={request_body['url']}",
+                    wait_until="networkidle",
+                    timeout=180000,
+                )
+            else:
+                logging.info(f"Making GET request to {url}")
+                page.goto(url, wait_until="networkidle", timeout=180000)
 
-        response.raise_for_status()
+            # Get rendered HTML content
+            html_content = page.content()
 
-        # Render the HTML content
-        response.html.render(timeout=60)
+        except Exception as e:
+            logging.error(f"Error occurred while fetching {url}: {e}")
+            html_content = None
 
-    html_content = response.html.html if not request_body else response.text
-    html_content_parsed_for_title = bare_extraction(html_content)
+        finally:
+            browser.close()
+
+    html_content_parsed_for_title = bare_extraction(html_content, as_dict=True)
     webpage_text = extract(html_content, include_comments=False, favor_recall=True)
     content_text = (
         (html_content_parsed_for_title.get("title") or "")
@@ -334,8 +343,7 @@ for feed in feeds:
                     requests.HTTPError,
                     requests.ConnectionError,
                     requests.exceptions.RetryError,
-                    pyppeteer.errors.TimeoutError,
-                    pyppeteer.errors.PageError,
+                    playwright.sync_api.TimeoutError,
                     urllib3.exceptions.NewConnectionError,
                     urllib3.exceptions.MaxRetryError,
                     waybackpy.exceptions.TooManyRequestsError,
