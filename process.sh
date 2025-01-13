@@ -34,9 +34,11 @@ echo "Main--Run IMAP Parse Emails script"
 pipenv run python3 parse_email.py
 cd /home/flog99/dev/podcast-transcribe/rss
 echo "Main--Install Parse RSS dependencies"
-pipenv install
+/home/flog99/.local/bin/uv sync
+echo "Main--Ensure Playwright is up to date"
+/home/flog99/.local/bin/uv run playwright install
 echo "Main--Run Parse RSS script"
-pipenv run python3 check-rss.py
+/home/flog99/.local/bin/uv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
 echo "Main--Copy email text to be in Google, AWS and OpenAI directories"
