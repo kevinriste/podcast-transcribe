@@ -66,6 +66,7 @@ if [ "$newHash" != "$oldHash" ]; then
     echo "Main--Run Dropcaster"
     start=$(date +%s)
     docker compose --file ./docker-compose-local.yml down --remove-orphans
+    docker compose --file ./docker-compose-local.yml build
     docker compose --file ./docker-compose-local.yml run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
     ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum > ./audio-hash.txt
