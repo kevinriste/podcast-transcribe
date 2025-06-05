@@ -11,11 +11,8 @@ dependencies = [
     "playwright>=1.49.1",
     "trafilatura>=2.0.0",
     "waybackpy>=3.0.6",
-    "youtube-dl",
+    "yt-dlp==2025.1.26",
 ]
 
 [dependency-groups]
 dev = []
-
-[tool.uv.sources]
-youtube-dl = { git = "https://github.com/ytdl-org/youtube-dl" }

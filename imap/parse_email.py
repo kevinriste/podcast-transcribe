@@ -3,7 +3,7 @@ import os
 import re
 
 import markdown
-import youtube_dl
+import yt_dlp
 from bs4 import BeautifulSoup
 from imap_tools import AND, MailBox, MailMessageFlags
 from playwright.sync_api import sync_playwright
@@ -166,9 +166,9 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                         "preferredquality": "192",
                     }
                 ],
-                "outtmpl": "../dropcaster-docker/audio/%(channel)s- %(title)s.%(ext)s",
+                "outtmpl": "../dropcaster-docker/audio/%(uploader)s- %(title)s.%(ext)s",
             }
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([email_text])
         else:
             email_text = msg.text
@@ -186,7 +186,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 )
                 continue
             clean_title = re.sub(
-                r"[^A-Za-z0-9 ]+", "", html_content_parsed_for_title.get("title")
+                r"[^A-Za-z0-9 ]+", "", html_content_parsed_for_title.as_dict().get("title")
             )
             output_filename = f"{output_folder}/{date}-{clean_title}.txt"
             output_file = open(output_filename, "w")
