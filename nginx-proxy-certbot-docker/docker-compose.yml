@@ -20,7 +20,12 @@ services:
             - './acme:/etc/acme.sh'
             - '/var/run/docker.sock:/var/run/docker.sock:ro'
         environment:
-            - "DEFAULT_EMAIL=${GMAIL_PRIMARY_ACCOUNT}"
+            DEFAULT_EMAIL: ${GMAIL_PRIMARY_ACCOUNT}
+            ACME_CHALLENGE: DNS-01
+            ACMESH_DNS_API_CONFIG: |-
+                DNS_API: dns_cf
+                CF_Token: ${CF_TOKEN}
+                CF_Account_ID: ${CF_ACCOUNT_ID}
         image: nginxproxy/acme-companion
     podcast_primary:
         restart: always
