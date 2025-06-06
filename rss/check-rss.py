@@ -63,7 +63,7 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
     """
     check_phrases = [
         "has been an Opinion columnist",
-        "The Times is committed to publishing a diversity of letters to the editor",
+        "From Beirut to Jerusalem",
     ]
 
     logging.info(f"Fetching {url}")
