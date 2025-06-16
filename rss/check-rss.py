@@ -64,6 +64,7 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
     check_phrases = [
         "has been an Opinion columnist",
         "From Beirut to Jerusalem",
+        "joined Opinion in 2021",
     ]
 
     logging.info(f"Fetching {url}")
