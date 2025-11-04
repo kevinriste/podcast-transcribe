@@ -163,6 +163,13 @@ def text_to_speech(incoming_filename):
 
             logging.info("Removing original text file")
             os.remove(incoming_filename)
+        else:
+            if len(text) == 0:
+                logging.warning(f"Skipping {filename.name}: file is empty after cleaning.")
+            elif len(text) >= 150000:
+                logging.warning(
+                    f"Skipping {filename.name}: text length {len(text)} exceeds 150000 character limit."
+                )
 
 
 if __name__ == "__main__":
