@@ -351,6 +351,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "google-cloud-texttospeech" },
     { name = "pydub" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -358,6 +359,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.3" },
     { name = "google-cloud-texttospeech", specifier = ">=2.23.0" },
     { name = "pydub", specifier = ">=0.25.1" },
+    { name = "requests", specifier = ">=2.32.3" },
 ]
 
 [package.metadata.requires-dev]

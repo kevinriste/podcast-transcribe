@@ -3,10 +3,12 @@ import logging
 import math
 import os
 import re
+import shutil
 import uuid
 from datetime import datetime
 from glob import glob
 
+import requests
 from google.cloud import texttospeech
 from pydub import AudioSegment
 
@@ -150,7 +152,7 @@ def text_to_speech(incoming_filename):
 
             if dash_index != -1:
                 # If "-" exists, insert the date after the first "-" with an additional "-" after it
-                output_filename = f"{final_output_dir}/{name_without_date[:dash_index+1]} {date_and_dash_from_text_file} {name_without_date[dash_index+1:]}-{current_datetime}.mp3"
+                output_filename = f"{final_output_dir}/{name_without_date[: dash_index + 1]} {date_and_dash_from_text_file} {name_without_date[dash_index + 1 :]}-{current_datetime}.mp3"
             else:
                 # If "-" does not exist, add "-" before and after the date at the end
                 output_filename = f"{final_output_dir}/{name_without_date}-{date_and_dash_from_text_file}{current_datetime}.mp3"
@@ -166,10 +168,34 @@ def text_to_speech(incoming_filename):
             os.remove(incoming_filename)
         else:
             if len(text) == 0:
-                logging.warning(f"Skipping {filename.name}: file is empty after cleaning.")
+                logging.warning(
+                    f"Skipping {filename.name}: file is empty after cleaning."
+                )
             elif len(text) >= character_limit:
                 logging.warning(
                     f"Skipping {filename.name}: text length {len(text)} exceeds {character_limit} character limit."
+                )
+                gotify_server = os.environ.get("GOTIFY_SERVER")
+                gotify_token = os.environ.get("GOTIFY_TOKEN")
+                debug_message = "Skipping long text-to-speech content"
+                debug_output = f"Skipping {filename.name}: text length {len(text)} exceeds {character_limit} character limit. Moving to holding directory."
+
+                gotify_url = f"{gotify_server}/message?token={gotify_token}"
+                data = {
+                    "title": debug_message,
+                    "message": debug_output,
+                    "priority": 6,
+                }
+                requests.post(gotify_url, data=data)
+
+                # Move the file to a separate directory so the processing isn't repeatedly tried
+                parent = os.path.dirname(os.path.abspath(input_dir))
+                target_dir = os.path.join(parent, "text-input-too-big")
+                os.makedirs(target_dir, exist_ok=True)
+
+                shutil.move(
+                    incoming_filename,
+                    os.path.join(target_dir, os.path.basename(incoming_filename)),
                 )
 
 
