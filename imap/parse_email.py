@@ -186,7 +186,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 )
                 continue
             clean_title = re.sub(
-                r"[^A-Za-z0-9 ]+", "", html_content_parsed_for_title.as_dict().get("title")
+                r"[^A-Za-z0-9 ]+", "", html_content_parsed_for_title.as_dict().get("title") or "No title available"
             )
             output_filename = f"{output_folder}/{date}-{clean_title}.txt"
             output_file = open(output_filename, "w")
