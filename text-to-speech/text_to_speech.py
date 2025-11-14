@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 input_dir = "text-input"
 temp_output_dir = "temp-output"
 final_output_dir = "../dropcaster-docker/audio"
-character_limit = 215000
+character_limit = 150000
 
 
 # Using regular expressions to clean email text
