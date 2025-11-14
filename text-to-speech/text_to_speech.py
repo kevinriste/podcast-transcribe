@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 input_dir = "text-input"
 temp_output_dir = "temp-output"
 final_output_dir = "../dropcaster-docker/audio"
+character_limit = 215000
 
 
 # Using regular expressions to clean email text
@@ -84,7 +85,7 @@ def text_to_speech(incoming_filename):
         next_text_starter_position = 0
         counter = 0
         max_steps = math.floor(1 + len(text) / min_step_size)
-        if len(text) < 150000 and len(text) > 0:
+        if len(text) < character_limit and len(text) > 0:
             while next_text_starter_position < len(text):
                 counter = counter + 1
                 first_whitespace_after_min_step_size_search = (
@@ -166,9 +167,9 @@ def text_to_speech(incoming_filename):
         else:
             if len(text) == 0:
                 logging.warning(f"Skipping {filename.name}: file is empty after cleaning.")
-            elif len(text) >= 150000:
+            elif len(text) >= character_limit:
                 logging.warning(
-                    f"Skipping {filename.name}: text length {len(text)} exceeds 150000 character limit."
+                    f"Skipping {filename.name}: text length {len(text)} exceeds {character_limit} character limit."
                 )
 
 
