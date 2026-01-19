@@ -10,6 +10,8 @@ from glob import glob
 
 import requests
 from google.cloud import texttospeech
+from mutagen.id3 import ID3, TT3, WXXX, ID3NoHeaderError, TIT2
+from openai import OpenAI
 from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -18,11 +20,13 @@ input_dir = "text-input"
 temp_output_dir = "temp-output"
 final_output_dir = "../dropcaster-docker/audio"
 character_limit = 150000
+summary_model = "gpt-5-mini"
+_openai_client = None
 
 
 # Using regular expressions to clean email text
 def clean_text(text):
-    text = "".join(text.decode("utf8"))
+    text = "".join(text)
     # Remove three or more consecutive dashes
     text = re.sub(r"---+", "", text)
     # Remove URLs from the email text
@@ -65,6 +69,80 @@ def clean_text(text):
     return text
 
 
+def split_metadata(raw_text):
+    if not raw_text.startswith("META_"):
+        return {}, raw_text
+    logging.info("Parsing metadata header")
+    lines = raw_text.splitlines()
+    metadata = {}
+    content_start = 0
+    for idx, line in enumerate(lines):
+        if line.startswith("META_"):
+            key, value = line.split(":", 1)
+            metadata[key.replace("META_", "").lower()] = value.strip()
+            continue
+        if line.strip() == "":
+            content_start = idx + 1
+            break
+        content_start = idx
+        break
+    content = "\n".join(lines[content_start:]) if content_start > 0 else raw_text
+    return metadata, content
+
+
+def get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI()
+    return _openai_client
+
+
+def generate_summary(text, title):
+    if not text.strip():
+        logging.info("Summary skipped: empty content")
+        return ""
+    logging.info("Generating summary via OpenAI")
+    prompt = (
+        "Summarize the article in 2-3 sentences. Focus on key points and keep it concise.\n\n"
+        f"Title: {title}\n\nArticle:\n{text}"
+    )
+    try:
+        client = get_openai_client()
+        response = client.responses.create(model=summary_model, input=prompt)
+        logging.info("Summary generated")
+        return response.output_text.strip()
+    except Exception as exc:
+        logging.error(f"Summary generation failed: {exc}")
+        return ""
+
+
+def build_description(summary, title, source_url, source_kind):
+    description_body = summary or "Summary unavailable."
+    title_line = title or "Untitled"
+    parts = [description_body, f"Title: {title_line}"]
+    if source_url:
+        display_text = source_url
+        if source_kind == "garbageday":
+            display_text = "Garbage Day"
+        parts.append(f'Source: <a href="{source_url}">{display_text}</a>')
+    return "<br/><br/>".join(parts)
+
+
+def apply_id3_tags(mp3_path, description, source_url, file_title):
+    logging.info("Writing ID3 tags to MP3")
+    try:
+        tags = ID3(mp3_path)
+    except ID3NoHeaderError:
+        tags = ID3()
+    if file_title:
+        tags.add(TIT2(encoding=3, text=file_title))
+    if description:
+        tags.add(TT3(encoding=3, text=description))
+    if source_url:
+        tags.add(WXXX(encoding=3, desc="Source", url=source_url))
+    tags.save(mp3_path, v1=2)
+
+
 def process_files():
     txt_files = sorted(glob(f"{input_dir}/*.txt"))
     for f in txt_files:
@@ -76,7 +154,9 @@ def text_to_speech(incoming_filename):
         logging.info(f"Synthesizing speech for email {filename.name}")
         name = os.path.basename(filename.name).replace(".txt", "")
         data = filename.read()
-        text = clean_text(data)
+        raw_text = data.decode("utf8")
+        metadata, content_text = split_metadata(raw_text)
+        text = clean_text(content_text)
         # initialize the API client
         client = texttospeech.TextToSpeechClient()
         mp3files = []
@@ -88,6 +168,13 @@ def text_to_speech(incoming_filename):
         counter = 0
         max_steps = math.floor(1 + len(text) / min_step_size)
         if len(text) < character_limit and len(text) > 0:
+            title = metadata.get("title", "").strip()
+            source_url = metadata.get("source_url", "").strip()
+            source_kind = metadata.get("source_kind", "").strip()
+            if title or source_url:
+                logging.info("Using metadata for summary and description")
+            summary = generate_summary(text, title)
+            description = build_description(summary, title, source_url, source_kind)
             while next_text_starter_position < len(text):
                 counter = counter + 1
                 first_whitespace_after_min_step_size_search = (
@@ -159,6 +246,9 @@ def text_to_speech(incoming_filename):
 
             logging.info(f"Exporting {output_filename}")
             audio.export(output_filename, format="mp3")
+            file_title = os.path.splitext(os.path.basename(output_filename))[0]
+            file_title = re.sub(r"-\d{8}$", "", file_title)
+            apply_id3_tags(output_filename, description, source_url, file_title)
 
             logging.info("Removing intermediate files")
             for f in mp3_segments:

@@ -207,6 +207,8 @@ for feed in feeds:
             date = raw_date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
             clean_subject = re.sub(r"[^A-Za-z0-9 ]+", "", parsedFeedEntry.title)
             output_filename = f"{output_folder}/{date}-{clean_from}{clean_subject}.txt"
+            meta_title = parsedFeedEntry.title
+            original_url = parsedFeedEntry.link
 
             if feed in wayback_feeds:
                 try:
@@ -220,8 +222,6 @@ for feed in feeds:
                         > max_timedelta_since_article_added_to_feed
                     ):
                         send_error_with_gotify = True
-                    original_url = parsedFeedEntry.link
-
                     content_text = fetch_and_process_html(
                         url=local_scraper_url,
                         headers={"Content-Type": "application/json"},
@@ -374,7 +374,15 @@ for feed in feeds:
                     clean_from + ".\n" + clean_subject + ".\n" + "\n" + content_text
                 )
             output_file = open(output_filename, "w")
-            output_file.write(content_text)
+            metadata_block = "\n".join(
+                [
+                    f"META_TITLE: {meta_title}",
+                    f"META_SOURCE_URL: {original_url}",
+                    "META_SOURCE_KIND: rss",
+                ]
+            )
+            logging.info("Writing metadata block to text input")
+            output_file.write(metadata_block + "\n\n" + content_text)
             output_file.close()
             guidDirExists = os.path.exists(guid_dir)
             if not guidDirExists:

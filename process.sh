@@ -55,6 +55,11 @@ echo "Main--Run Google Text to Speech script"
 /home/flog99/.local/bin/uv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
+echo "Main--Archive audio files older than 8 weeks (weekly cutoff)"
+weekly_cutoff=$(date -d "last monday -56 days" +%Y-%m-%d)
+archive_dir="./audio-archive"
+mkdir -p "$archive_dir"
+find ./audio -type f -name "*.mp3" ! -newermt "$weekly_cutoff" -print -exec mv {} "$archive_dir" \;
 echo "Main--Check if podcast files changed"
 newHash=$(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum)
 if [ -f audio-hash.txt ]; then
