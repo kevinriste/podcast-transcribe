@@ -4,7 +4,8 @@
 - Outputs: MP3 files in `dropcaster-docker/audio`, RSS in `dropcaster-docker/audio/index.rss`.
 
 ## Key Flow
-- `process.sh` (cron) orchestrates IMAP, RSS, TTS, Dropcaster, cleanup.
+- `process-caller.sh` is the cron entrypoint; it timestamps logs and calls `process.sh`.
+- `process.sh` orchestrates IMAP, RSS, TTS, Dropcaster, cleanup.
 - IMAP parsing: `imap/parse_email.py`
   - "link" subject: fetch full article via local scraper and write text input.
   - "youtube" subject: download audio via yt-dlp.
@@ -12,6 +13,7 @@
   - Metadata is prepended to text input: `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`.
 - RSS parsing: `rss/check-rss.py`
   - Writes text input + metadata and tracks GUIDs in `rss/feed-guids/`.
+  - Uses local scraper at `http://localhost:3002/fetch`.
 
 ## Summaries + Descriptions
 - Summary model: `gpt-5-mini`.
@@ -22,6 +24,7 @@
   - `Source: <a href="...">...</a>`
   - Uses `<br/><br/>` separators.
 - Garbage Day link text uses `Garbage Day` (URL still in href).
+- OpenAI/AWS Polly scripts do not add summaries or ID3 tags.
 
 ## Dropcaster
 - Template: `dropcaster-docker/dropcaster/templates/channel.rss.erb` (no overrides).
@@ -40,6 +43,8 @@
 
 ## Useful Paths
 - Text inputs: `text-to-speech/text-input`
+- Empty inputs: `text-to-speech/text-input-empty-files`
+- Oversized inputs: `text-to-speech/text-input-too-big`
 - RSS GUID tracking: `rss/feed-guids/`
 - Audio output: `dropcaster-docker/audio`
 - Archive: `dropcaster-docker/audio-archive`
@@ -49,6 +54,8 @@
 - `OPENAI_API_KEY`
 - `GOTIFY_SERVER`, `GOTIFY_TOKEN`
 - `PODCAST_DOMAIN_PRIMARY`, `PODCAST_DOMAIN_SECONDARY`
+- `GOOGLE_APPLICATION_CREDENTIALS` (Google TTS)
+- `GMAIL_PRIMARY_ACCOUNT`, `CF_TOKEN`, `CF_ACCOUNT_ID` (nginx-proxy + ACME)
 
 ## Common Tasks
 - Reprocess RSS entry: edit `rss/feed-guids/<FeedTitle>.txt` to older GUID.
