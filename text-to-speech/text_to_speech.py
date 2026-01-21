@@ -26,47 +26,63 @@ _openai_client = None
 
 # Using regular expressions to clean email text
 def clean_text(text):
-    text = "".join(text)
+    text_raw = "".join(text)
     # Remove three or more consecutive dashes
-    text = re.sub(r"---+", "", text)
+    text_without_dashes = re.sub(r"---+", "", text_raw)
     # Remove URLs from the email text
-    text = re.sub(
+    text_without_urls = re.sub(
         r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
         "",
-        text,
+        text_without_dashes,
     )
     # Remove empty square brackets []
-    text = re.sub(r"\[\]", "", text)
+    text_without_empty_brackets = re.sub(r"\[\]", "", text_without_urls)
     # Remove empty parentheses ()
-    text = re.sub(r"\(\)", "", text)
+    text_without_empty_parens = re.sub(r"\(\)", "", text_without_empty_brackets)
     # Remove empty angle brackets <>
-    text = re.sub(r"<>", "", text)
+    text_without_empty_angles = re.sub(r"<>", "", text_without_empty_parens)
     # get rid of superfluous non-newline whitespace
-    text = re.sub(r"[^\S\r\n]+", " ", text)
+    text_without_extra_whitespace = re.sub(
+        r"[^\S\r\n]+", " ", text_without_empty_angles
+    )
     # get rid of unsubscribe text
-    text = re.sub(r"(\r\n|\r|\n){2}Unsubscribe", "", text)
+    text_without_unsubscribe = re.sub(
+        r"(\r\n|\r|\n){2}Unsubscribe", "", text_without_extra_whitespace
+    )
     # get rid of intro 'view this post on the web' text
-    text = re.sub(r"View this post on the web at (\r\n|\r|\n){2}", "", text)
+    text_without_view_online = re.sub(
+        r"View this post on the web at (\r\n|\r|\n){2}",
+        "",
+        text_without_unsubscribe,
+    )
     # get rid of plain text disclaimer on beehiiv emails
-    text = re.sub(
+    text_without_plain_text_disclaimer = re.sub(
         r"You are reading a plain text version of this post. For the best experience, copy and paste this link in your browser to view the post online:",
         "",
-        text,
+        text_without_view_online,
     )
     # get rid of social links at top of Money Illusion posts
-    text = re.sub(
-        r"Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)", "", text
+    text_without_social_links = re.sub(
+        r"Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)",
+        "",
+        text_without_plain_text_disclaimer,
     )
     # get rid of weird image data/captions in beehiiv emails
-    text = re.sub(
-        r"View image: \(.*?\)(\r\n|\r|\n)?\s*Caption: .*?\s*.*(\r\n|\r|\n)?", "", text
+    text_without_image_captions = re.sub(
+        r"View image: \(.*?\)(\r\n|\r|\n)?\s*Caption: .*?\s*.*(\r\n|\r|\n)?",
+        "",
+        text_without_social_links,
     )
     # fix pronunciation of Keynesian
-    text = re.sub(r"Keynesian", "Cainzeean", text, flags=re.IGNORECASE)
+    text_with_pronunciation_fix = re.sub(
+        r"Keynesian", "Cainzeean", text_without_image_captions, flags=re.IGNORECASE
+    )
     # add punctuation to end of lines without it so that narration pauses briefly
-    text = re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text)
+    text_with_line_end_punctuation = re.sub(
+        r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text_with_pronunciation_fix
+    )
 
-    return text
+    return text_with_line_end_punctuation
 
 
 def split_metadata(raw_text):
@@ -128,14 +144,14 @@ def build_description(summary, title, source_url, source_kind):
     return "<br/><br/>".join(parts)
 
 
-def apply_id3_tags(mp3_path, description, source_url, file_title):
+def apply_id3_tags(mp3_path, description, source_url, title):
     logging.info("Writing ID3 tags to MP3")
     try:
         tags = ID3(mp3_path)
     except ID3NoHeaderError:
         tags = ID3()
-    if file_title:
-        tags.add(TIT2(encoding=3, text=file_title))
+    if title:
+        tags.add(TIT2(encoding=3, text=title))
     if description:
         tags.add(TT3(encoding=3, text=description))
     if source_url:
@@ -154,9 +170,9 @@ def text_to_speech(incoming_filename):
         logging.info(f"Synthesizing speech for email {filename.name}")
         name = os.path.basename(filename.name).replace(".txt", "")
         data = filename.read()
-        raw_text = data.decode("utf8")
-        metadata, content_text = split_metadata(raw_text)
-        text = clean_text(content_text)
+        input_text_raw = data.decode("utf8")
+        metadata, content_text_raw = split_metadata(input_text_raw)
+        content_text_cleaned = clean_text(content_text_raw)
         # initialize the API client
         client = texttospeech.TextToSpeechClient()
         mp3files = []
@@ -166,20 +182,22 @@ def text_to_speech(incoming_filename):
         compiled_regex_for_first_whitespace = re.compile(r"(\r\n|\r|\n|\.)+\s+")
         next_text_starter_position = 0
         counter = 0
-        max_steps = math.floor(1 + len(text) / min_step_size)
-        if len(text) < character_limit and len(text) > 0:
-            title = metadata.get("title", "").strip()
-            source_url = metadata.get("source_url", "").strip()
-            source_kind = metadata.get("source_kind", "").strip()
-            if title or source_url:
+        max_steps = math.floor(1 + len(content_text_cleaned) / min_step_size)
+        if len(content_text_cleaned) < character_limit and len(content_text_cleaned) > 0:
+            meta_title = metadata.get("title", "").strip()
+            meta_source_url = metadata.get("source_url", "").strip()
+            meta_source_kind = metadata.get("source_kind", "").strip()
+            if meta_title or meta_source_url:
                 logging.info("Using metadata for summary and description")
-            summary = generate_summary(text, title)
-            description = build_description(summary, title, source_url, source_kind)
-            while next_text_starter_position < len(text):
+            summary = generate_summary(content_text_cleaned, meta_title)
+            description = build_description(
+                summary, meta_title, meta_source_url, meta_source_kind
+            )
+            while next_text_starter_position < len(content_text_cleaned):
                 counter = counter + 1
                 first_whitespace_after_min_step_size_search = (
                     compiled_regex_for_first_whitespace.search(
-                        text,
+                        content_text_cleaned,
                         next_text_starter_position + min_step_size,
                         next_text_starter_position + max_step_size,
                     )
@@ -192,11 +210,11 @@ def text_to_speech(incoming_filename):
                     first_whitespace_after_min_step_size = (
                         next_text_starter_position + max_step_size
                     )
-                    if first_whitespace_after_min_step_size < len(text):
+                    if first_whitespace_after_min_step_size < len(content_text_cleaned):
                         logging.info(
                             f"max_step_size met before end of email {filename.name}"
                         )
-                text_to_process = text[
+                text_to_process = content_text_cleaned[
                     next_text_starter_position:first_whitespace_after_min_step_size
                 ]
                 next_text_starter_position = first_whitespace_after_min_step_size
@@ -248,7 +266,8 @@ def text_to_speech(incoming_filename):
             audio.export(output_filename, format="mp3")
             file_title = os.path.splitext(os.path.basename(output_filename))[0]
             file_title = re.sub(r"-\d{8}$", "", file_title)
-            apply_id3_tags(output_filename, description, source_url, file_title)
+            title_for_tag = meta_title or file_title
+            apply_id3_tags(output_filename, description, meta_source_url, title_for_tag)
 
             logging.info("Removing intermediate files")
             for f in mp3_segments:
@@ -257,13 +276,13 @@ def text_to_speech(incoming_filename):
             logging.info("Removing original text file")
             os.remove(incoming_filename)
         else:
-            if len(text) == 0:
+            if len(content_text_cleaned) == 0:
                 logging.warning(
                     f"Skipping {filename.name}: file is empty after cleaning."
                 )
-            elif len(text) >= character_limit:
+            elif len(content_text_cleaned) >= character_limit:
                 logging.warning(
-                    f"Skipping {filename.name}: text length {len(text)} exceeds {character_limit} character limit."
+                    f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit."
                 )
                 gotify_server = os.environ.get("GOTIFY_SERVER")
                 gotify_token = os.environ.get("GOTIFY_TOKEN")

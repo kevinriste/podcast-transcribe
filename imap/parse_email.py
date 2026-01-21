@@ -259,67 +259,83 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
 with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
     msgs = mailbox.fetch(AND(seen=False), mark_seen=False)
     for msg in msgs:
-        subject = msg.subject.replace("Fwd: ", "")
-        date = msg.date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
-        from_ = msg.from_values.name
+        subject_raw = msg.subject.replace("Fwd: ", "")
+        date_stamp = msg.date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
+        from_name_raw = msg.from_values.name
         from_email = msg.from_values.email
-        clean_from = re.sub(r"[^A-Za-z0-9 ]+", "", from_)
-        clean_from = clean_from + "- " if clean_from != "" else ""
-        clean_subject = re.sub(r"[^A-Za-z0-9 ]+", "", subject)
-        clean_subject_lowercase = clean_subject.lower()
-        if clean_subject_lowercase != "link" and clean_subject_lowercase != "youtube":
-            output_filename = f"{output_folder}/{date}-{clean_from}{clean_subject}.txt"
+        from_name_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", from_name_raw)
+        from_prefix_for_filename = (
+            from_name_for_filename + "- " if from_name_for_filename != "" else ""
+        )
+        from_line = f"{from_name_raw}.\n" if from_name_raw else ""
+        subject_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", subject_raw)
+        subject_for_filter_lower = subject_for_filename.lower()
+        subject_line = f"{subject_raw}.\n" if subject_raw else ""
+        if subject_for_filter_lower != "link" and subject_for_filter_lower != "youtube":
+            output_filename = (
+                f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
+            )
             logging.info(f"parsing email: {output_filename}")
-            email_text = msg.text
+            email_text_raw = msg.text
             source_kind = "garbageday" if "garbageday" in from_email else "substack"
             all_links = extract_links_from_email(msg)
-            source_url = find_source_url(all_links, source_kind, clean_subject)
+            source_url = find_source_url(all_links, source_kind, subject_raw)
             if not source_url:
                 source_kind = "unknown"
                 send_gotify_notification(
                     "Unknown email source",
-                    f"No Substack/Garbage Day link found for {from_email} ({subject}).",
+                    f"No Substack/Garbage Day link found for {from_email} ({subject_raw}).",
                 )
             if any(
                 markdown_email_address in from_email
                 for markdown_email_address in markdown_email_addresses
             ):
-                email_text = markdown_to_plain_text(email_text)
-            first_clean_email_text = re.sub(
+                email_text_plain = markdown_to_plain_text(email_text_raw)
+            else:
+                email_text_plain = email_text_raw
+            email_text_without_urls = re.sub(
                 r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
                 "",
-                email_text,
+                email_text_plain,
             )
-            second_clean_email_text = re.sub(r"\[\]", "", first_clean_email_text)
-            third_clean_email_text = re.sub(r"\(\)", "", second_clean_email_text)
-            clean_email_text = re.sub(r"<>", "", third_clean_email_text)
-            if len(clean_email_text) > 0:
-                clean_email_text = (
-                    clean_from + ".\n" + clean_subject + ".\n" + "\n" + clean_email_text
+            email_text_without_empty_brackets = re.sub(
+                r"\[\]", "", email_text_without_urls
+            )
+            email_text_without_empty_parens = re.sub(
+                r"\(\)", "", email_text_without_empty_brackets
+            )
+            email_text_without_empty_angles = re.sub(
+                r"<>", "", email_text_without_empty_parens
+            )
+            if len(email_text_without_empty_angles) > 0:
+                newsletter_text_for_tts = (
+                    from_line + subject_line + "\n" + email_text_without_empty_angles
                 )
+            else:
+                newsletter_text_for_tts = email_text_without_empty_angles
 
             move_to_podcast = True
             if (
-                "Jessica Valenti" in clean_from
-                and "the week in" not in clean_subject_lowercase
+                "Jessica Valenti" in from_name_for_filename
+                and "the week in" not in subject_for_filter_lower
             ):
                 move_to_podcast = False
             if move_to_podcast:
                 output_file = open(output_filename, "w")
                 metadata_block = "\n".join(
                     [
-                        f"META_TITLE: {clean_subject}",
+                        f"META_TITLE: {subject_raw}",
                         f"META_SOURCE_URL: {source_url}",
                         f"META_SOURCE_KIND: {source_kind}",
                     ]
                 )
                 logging.info("Writing metadata block to text input")
-                output_file.write(metadata_block + "\n\n" + clean_email_text)
+                output_file.write(metadata_block + "\n\n" + newsletter_text_for_tts)
                 output_file.close()
-        elif clean_subject_lowercase == "youtube":
-            email_text = msg.text
-            email_text = re.sub(r"[^\S]+", "", email_text)
-            logging.info(f"fetching youtube audio: {email_text}")
+        elif subject_for_filter_lower == "youtube":
+            email_text_raw = msg.text
+            youtube_url = re.sub(r"[^\S]+", "", email_text_raw)
+            logging.info(f"fetching youtube audio: {youtube_url}")
             ydl_opts = {
                 "format": "bestaudio[protocol!=m3u8][protocol!=m3u8_native]/bestaudio/best",
                 "extractor_args": {"youtube": {"player_client": ["android"]}},
@@ -335,11 +351,11 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 "outtmpl": "../dropcaster-docker/audio/%(uploader)s- %(title)s.%(ext)s",
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(email_text, download=True)
+                info = ydl.extract_info(youtube_url, download=True)
                 base_filename = ydl.prepare_filename(info)
                 mp3_filename = os.path.splitext(base_filename)[0] + ".mp3"
                 video_title = info.get("title") or "YouTube Video"
-                video_url = info.get("webpage_url") or email_text
+                video_url = info.get("webpage_url") or youtube_url
                 video_description = info.get("description") or ""
                 summary = generate_summary(video_description, video_title)
                 description_body = summary or "Summary unavailable."
@@ -349,10 +365,10 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 else:
                     logging.error(f"Expected MP3 not found: {mp3_filename}")
         else:
-            email_text = msg.text
-            email_text = re.sub(r"[^\S]+", "", email_text)
-            logging.info(f"fetching webpage: {email_text}")
-            original_url = email_text
+            email_text_raw = msg.text
+            url_text_compact = re.sub(r"[^\S]+", "", email_text_raw)
+            logging.info(f"fetching webpage: {url_text_compact}")
+            original_url = url_text_compact
             html_content_parsed_for_title, webpage_text = fetch_and_process_html(
                 url=local_scraper_url,
                 headers={"Content-Type": "application/json"},
@@ -360,20 +376,19 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             )
             if webpage_text is None:
                 logging.info(
-                    f"could not parse webpage, saving for next time: {email_text}"
+                    f"could not parse webpage, saving for next time: {original_url}"
                 )
                 continue
-            clean_title = re.sub(
-                r"[^A-Za-z0-9 ]+",
-                "",
+            raw_title = (
                 html_content_parsed_for_title.as_dict().get("title")
-                or "No title available",
+                or "No title available"
             )
-            output_filename = f"{output_folder}/{date}-{clean_title}.txt"
+            title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", raw_title)
+            output_filename = f"{output_folder}/{date_stamp}-{title_for_filename}.txt"
             output_file = open(output_filename, "w")
             metadata_block = "\n".join(
                 [
-                    f"META_TITLE: {clean_title}",
+                    f"META_TITLE: {raw_title}",
                     f"META_SOURCE_URL: {original_url}",
                     "META_SOURCE_KIND: url",
                 ]

@@ -126,7 +126,7 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
 
 for feed in feeds:
     try:
-        parsedFeed = feedparser.parse(feed)
+        parsed_feed = feedparser.parse(feed)
 
         # Prepare shared variables for file logging
         now = datetime.now()
@@ -136,10 +136,10 @@ for feed in feeds:
 
         # Save the serializable feed data to a JSON file
         json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-json.json"
-        json_version_of_parsed_feed = msgspec.json.encode(parsedFeed)
+        json_version_of_parsed_feed = msgspec.json.encode(parsed_feed)
 
         # Sometimes The Money Illusion returns an old version of its feed for some reason. This prevents that from causing processing of old items.
-        parsed_feed_updated_date = parser.parse(parsedFeed.feed.updated).replace(
+        parsed_feed_updated_date = parser.parse(parsed_feed.feed.updated).replace(
             tzinfo=None
         )
         max_timedelta_since_feed_last_updated = timedelta(days=7)
@@ -168,14 +168,16 @@ for feed in feeds:
             with open(json_filename, "wb") as json_file:
                 json_file.write(json_version_of_parsed_feed)
 
-        from_ = parsedFeed.feed.title
-        clean_from_original = re.sub(r"[^A-Za-z0-9 ]+", "", from_)
-        clean_from = clean_from_original + "- " if clean_from_original != "" else ""
+        feed_title_raw = parsed_feed.feed.title
+        feed_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", feed_title_raw)
+        feed_prefix_for_filename = (
+            feed_title_for_filename + "- " if feed_title_for_filename != "" else ""
+        )
         guid_dir = "./feed-guids"
-        guid_filename = f"{guid_dir}/{clean_from_original}.txt"
+        guid_filename = f"{guid_dir}/{feed_title_for_filename}.txt"
         try:
             with open(guid_filename) as guid_file:
-                mostRecentGuid = guid_file.read()
+                most_recent_guid = guid_file.read()
             # Copy current version of guids txt file
             if enable_diagnosis:
                 shutil.copy(
@@ -183,17 +185,17 @@ for feed in feeds:
                     f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-before.txt",
                 )
         except FileNotFoundError:
-            mostRecentGuid = None
-        parsedFeedEntryGuids = [
-            parsedFeedEntry.id for parsedFeedEntry in parsedFeed.entries
+            most_recent_guid = None
+        parsed_feed_entry_guids = [
+            parsed_feed_entry.id for parsed_feed_entry in parsed_feed.entries
         ]
         try:
-            most_recent_guid_index = parsedFeedEntryGuids.index(mostRecentGuid)
+            most_recent_guid_index = parsed_feed_entry_guids.index(most_recent_guid)
         except ValueError:
             most_recent_guid_index = None
 
         # Get list of RSS items that haven't been processed, process them from oldest to newest
-        feed_entries_before_most_recently_processed = parsedFeed.entries[
+        feed_entries_before_most_recently_processed = parsed_feed.entries[
             :most_recent_guid_index
         ][::-1]
 
@@ -202,13 +204,16 @@ for feed in feeds:
                 f"Processing {len(feed_entries_before_most_recently_processed)} entries for {feed}"
             )
 
-        for parsedFeedEntry in feed_entries_before_most_recently_processed:
-            raw_date = parser.parse(parsedFeedEntry.published)
-            date = raw_date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
-            clean_subject = re.sub(r"[^A-Za-z0-9 ]+", "", parsedFeedEntry.title)
-            output_filename = f"{output_folder}/{date}-{clean_from}{clean_subject}.txt"
-            meta_title = parsedFeedEntry.title
-            original_url = parsedFeedEntry.link
+        for parsed_feed_entry in feed_entries_before_most_recently_processed:
+            raw_date = parser.parse(parsed_feed_entry.published)
+            date_stamp = raw_date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
+            entry_title_raw = parsed_feed_entry.title
+            entry_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", entry_title_raw)
+            output_filename = (
+                f"{output_folder}/{date_stamp}-{feed_prefix_for_filename}{entry_title_for_filename}.txt"
+            )
+            meta_title = entry_title_raw
+            original_url = parsed_feed_entry.link
 
             if feed in wayback_feeds:
                 try:
@@ -368,11 +373,18 @@ for feed in feeds:
                         requests.post(gotify_url, data=data)
                     break
             else:
-                soup = BeautifulSoup(parsedFeedEntry.content[0].value, "html.parser")
-                content_text = soup.get_text()
-                content_text = (
-                    clean_from + ".\n" + clean_subject + ".\n" + "\n" + content_text
+                soup = BeautifulSoup(
+                    parsed_feed_entry.content[0].value, "html.parser"
                 )
+                content_text_raw = soup.get_text()
+                content_text_with_prefix = (
+                    (feed_title_raw + ".\n" if feed_title_raw else "")
+                    + entry_title_raw
+                    + ".\n"
+                    + "\n"
+                    + content_text_raw
+                )
+                content_text = content_text_with_prefix
             output_file = open(output_filename, "w")
             metadata_block = "\n".join(
                 [
@@ -388,7 +400,7 @@ for feed in feeds:
             if not guidDirExists:
                 os.makedirs(guid_dir)
             guid_output_file = open(guid_filename, "w")
-            guid_output_file.write(parsedFeedEntry.id)
+            guid_output_file.write(parsed_feed_entry.id)
             guid_output_file.close()
             # Copy new version of guids txt file
             date_string = datetime.now().strftime("%Y%m%d-%H%M%S")
