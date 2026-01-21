@@ -159,6 +159,17 @@ def apply_id3_tags(mp3_path, description, source_url, title):
     tags.save(mp3_path, v1=2)
 
 
+def to_base36(value):
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if value == 0:
+        return "0"
+    digits = []
+    while value:
+        value, remainder = divmod(value, 36)
+        digits.append(alphabet[remainder])
+    return "".join(reversed(digits))
+
+
 def process_files():
     txt_files = sorted(glob(f"{input_dir}/*.txt"))
     for f in txt_files:
@@ -184,6 +195,7 @@ def text_to_speech(incoming_filename):
         counter = 0
         max_steps = math.floor(1 + len(content_text_cleaned) / min_step_size)
         if len(content_text_cleaned) < character_limit and len(content_text_cleaned) > 0:
+            meta_from = metadata.get("from", "").strip()
             meta_title = metadata.get("title", "").strip()
             meta_source_url = metadata.get("source_url", "").strip()
             meta_source_kind = metadata.get("source_kind", "").strip()
@@ -266,7 +278,17 @@ def text_to_speech(incoming_filename):
             audio.export(output_filename, format="mp3")
             file_title = os.path.splitext(os.path.basename(output_filename))[0]
             file_title = re.sub(r"-\d{8}$", "", file_title)
-            title_for_tag = meta_title or file_title
+            if meta_from and meta_title:
+                now = datetime.now()
+                base36_width = 6 if now.year <= 2037 else 7
+                unix_seconds_base36 = to_base36(int(now.timestamp())).zfill(
+                    base36_width
+                )
+                title_for_tag = (
+                    f"{meta_from}- {unix_seconds_base36}- {meta_title}"
+                )
+            else:
+                title_for_tag = meta_title or file_title
             apply_id3_tags(output_filename, description, meta_source_url, title_for_tag)
 
             logging.info("Removing intermediate files")

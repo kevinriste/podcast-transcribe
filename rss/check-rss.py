@@ -388,6 +388,7 @@ for feed in feeds:
             output_file = open(output_filename, "w")
             metadata_block = "\n".join(
                 [
+                    f"META_FROM: {feed_title_raw}",
                     f"META_TITLE: {meta_title}",
                     f"META_SOURCE_URL: {original_url}",
                     "META_SOURCE_KIND: rss",

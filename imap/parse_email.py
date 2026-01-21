@@ -324,6 +324,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 output_file = open(output_filename, "w")
                 metadata_block = "\n".join(
                     [
+                        f"META_FROM: {from_name_raw}",
                         f"META_TITLE: {subject_raw}",
                         f"META_SOURCE_URL: {source_url}",
                         f"META_SOURCE_KIND: {source_kind}",
@@ -388,6 +389,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             output_file = open(output_filename, "w")
             metadata_block = "\n".join(
                 [
+                    f"META_FROM: {from_name_raw}",
                     f"META_TITLE: {raw_title}",
                     f"META_SOURCE_URL: {original_url}",
                     "META_SOURCE_KIND: url",
