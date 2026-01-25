@@ -32,12 +32,12 @@ Optional scripts:
 
 ## Intake methods (end-to-end)
 
-### Email: plain newsletters (Substack/Garbage Day/other)
+### Email: plain newsletters (Substack/Beehiiv/other)
 1) `imap/parse_email.py` reads unread IMAP messages.
-2) Email text is cleaned; markdown-only sources (e.g., Garbage Day) are converted to plain text.
+2) Email text is cleaned; Beehiiv sources are converted to plain text.
 3) A source URL is extracted from the email HTML.
    - Substack: chooses the post link and cleans it to `publication_id` + `post_id`.
-   - Garbage Day: uses the “Read Online” link and displays it as “Garbage Day”.
+   - Beehiiv: uses the “Read Online” link and displays the sender name.
    - Unknown sources: sends a Gotify notification and leaves the source URL blank.
 4) Metadata is prepended to the text input:
    - `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`
@@ -78,7 +78,7 @@ Optional scripts:
 
 ### Email cleaning (`imap/parse_email.py`)
 Plain newsletter text is normalized before writing to the text input file:
-- If the sender matches a markdown source (e.g., Garbage Day), convert markdown to HTML and extract plain text.
+- If the sender is Beehiiv (`x-beehiiv-ids`), convert markdown to HTML and extract plain text.
 - Strip all URLs using a URL regex.
 - Remove empty bracket pairs: `[]`, `()`, `<>`.
 - Prefix the body with `From.` and `Subject.` lines (using the unstripped subject).

@@ -9,8 +9,8 @@
 - IMAP parsing: `imap/parse_email.py`
   - "link" subject: fetch full article via local scraper and write text input.
   - "youtube" subject: download audio via yt-dlp.
-  - Other emails: treat as newsletter; Substack/Garbage Day link extraction.
-  - Metadata is prepended to text input: `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`.
+  - Other emails: treat as newsletter; Beehiiv uses the “Read Online” link for source URL; Substack uses link extraction.
+  - Metadata is prepended to text input: `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`, `META_SOURCE_NAME`.
 - RSS parsing: `rss/check-rss.py`
   - Writes text input + metadata and tracks GUIDs in `rss/feed-guids/`.
   - Uses local scraper at `http://localhost:3002/fetch`.
@@ -23,7 +23,7 @@
   - `Title: <title>`
   - `Source: <a href="...">...</a>`
   - Uses `<br/><br/>` separators.
-- Garbage Day link text uses `Garbage Day` (URL still in href).
+- Beehiiv link text uses `META_SOURCE_NAME` (URL still in href).
 - OpenAI/AWS Polly scripts do not add summaries or ID3 tags.
 
 ## Dropcaster

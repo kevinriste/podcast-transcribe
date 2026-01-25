@@ -10,7 +10,7 @@ from glob import glob
 
 import requests
 from google.cloud import texttospeech
-from mutagen.id3 import ID3, TT3, WXXX, ID3NoHeaderError, TIT2
+from mutagen.id3 import ID3, TIT2, TT3, WXXX, ID3NoHeaderError
 from openai import OpenAI
 from pydub import AudioSegment
 
@@ -132,14 +132,14 @@ def generate_summary(text, title):
         return ""
 
 
-def build_description(summary, title, source_url, source_kind):
+def build_description(summary, title, source_url, source_kind, source_name=""):
     description_body = summary or "Summary unavailable."
     title_line = title or "Untitled"
     parts = [description_body, f"Title: {title_line}"]
     if source_url:
         display_text = source_url
-        if source_kind == "garbageday":
-            display_text = "Garbage Day"
+        if source_kind == "beehiiv" and source_name:
+            display_text = source_name
         parts.append(f'Source: <a href="{source_url}">{display_text}</a>')
     return "<br/><br/>".join(parts)
 
@@ -194,16 +194,20 @@ def text_to_speech(incoming_filename):
         next_text_starter_position = 0
         counter = 0
         max_steps = math.floor(1 + len(content_text_cleaned) / min_step_size)
-        if len(content_text_cleaned) < character_limit and len(content_text_cleaned) > 0:
+        if (
+            len(content_text_cleaned) < character_limit
+            and len(content_text_cleaned) > 0
+        ):
             meta_from = metadata.get("from", "").strip()
             meta_title = metadata.get("title", "").strip()
             meta_source_url = metadata.get("source_url", "").strip()
             meta_source_kind = metadata.get("source_kind", "").strip()
+            meta_source_name = metadata.get("source_name", "").strip()
             if meta_title or meta_source_url:
                 logging.info("Using metadata for summary and description")
             summary = generate_summary(content_text_cleaned, meta_title)
             description = build_description(
-                summary, meta_title, meta_source_url, meta_source_kind
+                summary, meta_title, meta_source_url, meta_source_kind, meta_source_name
             )
             while next_text_starter_position < len(content_text_cleaned):
                 counter = counter + 1
@@ -284,9 +288,7 @@ def text_to_speech(incoming_filename):
                 unix_seconds_base36 = to_base36(int(now.timestamp())).zfill(
                     base36_width
                 )
-                title_for_tag = (
-                    f"{meta_from}- {unix_seconds_base36}- {meta_title}"
-                )
+                title_for_tag = f"{meta_from}- {unix_seconds_base36}- {meta_title}"
             else:
                 title_for_tag = meta_title or file_title
             apply_id3_tags(output_filename, description, meta_source_url, title_for_tag)
@@ -309,7 +311,7 @@ def text_to_speech(incoming_filename):
                 gotify_server = os.environ.get("GOTIFY_SERVER")
                 gotify_token = os.environ.get("GOTIFY_TOKEN")
                 debug_message = "Skipping long text-to-speech content"
-                debug_output = f"Skipping {filename.name}: text length {len(text)} exceeds {character_limit} character limit. Moving to holding directory."
+                debug_output = f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit. Moving to holding directory."
 
                 gotify_url = f"{gotify_server}/message?token={gotify_token}"
                 data = {

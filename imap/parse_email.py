@@ -20,10 +20,6 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 output_folder = "../text-to-speech/text-input"
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
-markdown_email_addresses = [
-    "beehiiv",
-    "garbageday.email",
-]
 local_scraper_url = "http://localhost:3001/fetch"
 summary_model = "gpt-5-mini"
 _openai_client = None
@@ -109,14 +105,10 @@ def extract_links_from_email(msg):
 def find_source_url(links, source_kind, subject):
     subject_norm = normalize_text(subject)
     logging.info(f"Selecting source URL for {source_kind} email")
-    if source_kind == "garbageday":
+    if source_kind == "beehiiv":
         for link in links:
             if normalize_text(link["text"]) == "read online":
-                logging.info("Found Garbage Day 'Read Online' link")
-                return link["href"]
-        for link in links:
-            if "garbageday" in link["href"]:
-                logging.info("Found Garbage Day domain link")
+                logging.info("Found Beehiiv 'Read Online' link")
                 return link["href"]
     if source_kind == "substack":
         for link in links:
@@ -272,24 +264,20 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         subject_for_filter_lower = subject_for_filename.lower()
         subject_line = f"{subject_raw}.\n" if subject_raw else ""
         if subject_for_filter_lower != "link" and subject_for_filter_lower != "youtube":
-            output_filename = (
-                f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
-            )
+            output_filename = f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
             logging.info(f"parsing email: {output_filename}")
             email_text_raw = msg.text
-            source_kind = "garbageday" if "garbageday" in from_email else "substack"
+            has_beehiiv = bool(msg.headers.get("x-beehiiv-ids"))
+            source_kind = "beehiiv" if has_beehiiv else "substack"
             all_links = extract_links_from_email(msg)
             source_url = find_source_url(all_links, source_kind, subject_raw)
             if not source_url:
                 source_kind = "unknown"
                 send_gotify_notification(
                     "Unknown email source",
-                    f"No Substack/Garbage Day link found for {from_email} ({subject_raw}).",
+                    f"No source link found for {from_email} ({subject_raw}).",
                 )
-            if any(
-                markdown_email_address in from_email
-                for markdown_email_address in markdown_email_addresses
-            ):
+            if source_kind == "beehiiv":
                 email_text_plain = markdown_to_plain_text(email_text_raw)
             else:
                 email_text_plain = email_text_raw
@@ -328,6 +316,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                         f"META_TITLE: {subject_raw}",
                         f"META_SOURCE_URL: {source_url}",
                         f"META_SOURCE_KIND: {source_kind}",
+                        f"META_SOURCE_NAME: {from_name_raw}",
                     ]
                 )
                 logging.info("Writing metadata block to text input")
