@@ -173,30 +173,35 @@ for feed in feeds:
         json_version_of_parsed_feed = msgspec.json.encode(parsed_feed)
 
         # Sometimes The Money Illusion returns an old version of its feed for some reason. This prevents that from causing processing of old items.
-        parsed_feed_updated_date = parser.parse(parsed_feed.feed.updated).replace(
-            tzinfo=None
-        )
-        max_timedelta_since_feed_last_updated = timedelta(days=7)
-        timedelta_since_feed_last_updated = now - parsed_feed_updated_date
-        if timedelta_since_feed_last_updated > max_timedelta_since_feed_last_updated:
-            error_threshold_timedelta_since_feed_last_updated = timedelta(days=30)
+        feed_updated_raw = getattr(parsed_feed.feed, "updated", None)
+        if feed_updated_raw:
+            parsed_feed_updated_date = parser.parse(feed_updated_raw).replace(
+                tzinfo=None
+            )
+            max_timedelta_since_feed_last_updated = timedelta(days=7)
+            timedelta_since_feed_last_updated = now - parsed_feed_updated_date
             if (
                 timedelta_since_feed_last_updated
-                > error_threshold_timedelta_since_feed_last_updated
+                > max_timedelta_since_feed_last_updated
             ):
-                logging.error(
-                    f"Error: {clean_feed_name}-{date_string} was more than 30 days old"
-                )
+                error_threshold_timedelta_since_feed_last_updated = timedelta(days=30)
+                if (
+                    timedelta_since_feed_last_updated
+                    > error_threshold_timedelta_since_feed_last_updated
+                ):
+                    logging.error(
+                        f"Error: {clean_feed_name}-{date_string} was more than 30 days old"
+                    )
 
-                with open(json_filename, "wb") as json_file:
-                    json_file.write(json_version_of_parsed_feed)
-            else:
-                logging.info(
-                    f"{clean_feed_name}-{date_string} was more than 7 days old"
-                )
+                    with open(json_filename, "wb") as json_file:
+                        json_file.write(json_version_of_parsed_feed)
+                else:
+                    logging.info(
+                        f"{clean_feed_name}-{date_string} was more than 7 days old"
+                    )
 
-            # Go to the next feed and stop processing this one
-            continue
+                # Go to the next feed and stop processing this one
+                continue
 
         if enable_diagnosis:
             with open(json_filename, "wb") as json_file:
