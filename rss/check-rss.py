@@ -281,9 +281,12 @@ for feed in feeds:
                 if is_nfl_related(entry_title_raw, entry_description):
                     notify_title = (
                         "New Bill Simmons podcast to whitelist: "
-                        f"{entry_title_raw} https://podly.klt.pw"
+                        f"{entry_title_raw}"
                     )
-                    send_gotify_notification(notify_title, entry_description)
+                    notify_description = f"https://podly.klt.pw\n\n{entry_description}"
+                    send_gotify_notification(
+                        notify_title, notify_description, priority=9
+                    )
                 content_text = ""
                 write_output = False
             elif feed in wayback_feeds:
