@@ -13,6 +13,7 @@ import urllib3
 import waybackpy
 from bs4 import BeautifulSoup
 from dateutil import parser
+from openai import OpenAI
 from playwright.sync_api import sync_playwright
 from requests.adapters import HTTPAdapter
 from trafilatura import bare_extraction, extract
@@ -20,6 +21,9 @@ from urllib3.util.retry import Retry
 from waybackpy import WaybackMachineCDXServerAPI
 
 local_scraper_url = "http://localhost:3002/fetch"
+bill_simmons_feed = "https://feeds.megaphone.fm/the-bill-simmons-podcast"
+summary_model = "gpt-5-mini"
+_openai_client = None
 
 # Create a Retry object with zero retries
 retry_strategy = Retry(
@@ -46,6 +50,41 @@ wayback_feeds = [
 ]
 
 feeds = [line.rstrip() for line in open(feedsFile)]
+
+
+def get_openai_client():
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI()
+    return _openai_client
+
+
+def send_gotify_notification(title, message, priority=6):
+    gotify_server = os.environ.get("GOTIFY_SERVER")
+    gotify_token = os.environ.get("GOTIFY_TOKEN")
+    if not gotify_server or not gotify_token:
+        logging.warning("Gotify env vars not set; skipping notification.")
+        return
+    gotify_url = f"{gotify_server}/message?token={gotify_token}"
+    data = {"title": title, "message": message, "priority": priority}
+    requests.post(gotify_url, data=data)
+
+
+def is_nfl_related(title, description):
+    if not title and not description:
+        return False
+    prompt = (
+        "Determine if this podcast episode involves NFL football. "
+        "Respond with YES or NO only.\n\n"
+        f"Title: {title}\n\nDescription:\n{description}"
+    )
+    try:
+        client = get_openai_client()
+        response = client.responses.create(model=summary_model, input=prompt)
+        return response.output_text.strip().upper().startswith("YES")
+    except Exception as exc:
+        logging.error(f"NFL relevance check failed: {exc}")
+        return False
 
 
 def fetch_and_process_html(url, final_request=False, headers=None, request_body=None):
@@ -189,6 +228,11 @@ for feed in feeds:
         parsed_feed_entry_guids = [
             parsed_feed_entry.id for parsed_feed_entry in parsed_feed.entries
         ]
+        if most_recent_guid is None and feed == bill_simmons_feed:
+            if len(parsed_feed_entry_guids) >= 5:
+                most_recent_guid = parsed_feed_entry_guids[4]
+            elif len(parsed_feed_entry_guids) > 0:
+                most_recent_guid = parsed_feed_entry_guids[-1]
         try:
             most_recent_guid_index = parsed_feed_entry_guids.index(most_recent_guid)
         except ValueError:
@@ -214,8 +258,24 @@ for feed in feeds:
             )
             meta_title = entry_title_raw
             original_url = parsed_feed_entry.link
+            write_output = True
 
-            if feed in wayback_feeds:
+            if feed == bill_simmons_feed:
+                entry_description_raw = (
+                    parsed_feed_entry.get("summary")
+                    or parsed_feed_entry.get("description")
+                    or ""
+                )
+                entry_description = str(entry_description_raw)
+                if is_nfl_related(entry_title_raw, entry_description):
+                    notify_title = (
+                        "New Bill Simmons podcast to whitelist: "
+                        f"{entry_title_raw} https://podly.klt.pw"
+                    )
+                    send_gotify_notification(notify_title, entry_description)
+                content_text = ""
+                write_output = False
+            elif feed in wayback_feeds:
                 try:
                     send_error_with_gotify = False
                     max_timedelta_since_article_added_to_feed = timedelta(days=2)
@@ -385,18 +445,19 @@ for feed in feeds:
                     + content_text_raw
                 )
                 content_text = content_text_with_prefix
-            output_file = open(output_filename, "w")
-            metadata_block = "\n".join(
-                [
-                    f"META_FROM: {feed_title_raw}",
-                    f"META_TITLE: {meta_title}",
-                    f"META_SOURCE_URL: {original_url}",
-                    "META_SOURCE_KIND: rss",
-                ]
-            )
-            logging.info("Writing metadata block to text input")
-            output_file.write(metadata_block + "\n\n" + content_text)
-            output_file.close()
+            if write_output:
+                output_file = open(output_filename, "w")
+                metadata_block = "\n".join(
+                    [
+                        f"META_FROM: {feed_title_raw}",
+                        f"META_TITLE: {meta_title}",
+                        f"META_SOURCE_URL: {original_url}",
+                        "META_SOURCE_KIND: rss",
+                    ]
+                )
+                logging.info("Writing metadata block to text input")
+                output_file.write(metadata_block + "\n\n" + content_text)
+                output_file.close()
             guidDirExists = os.path.exists(guid_dir)
             if not guidDirExists:
                 os.makedirs(guid_dir)
