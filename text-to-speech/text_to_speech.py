@@ -55,11 +55,23 @@ def clean_text(text):
         "",
         text_without_unsubscribe,
     )
+    # remove Substack "substacks referenced above" block and trailing @ lines
+    text_without_substack_refs = re.sub(
+        r"(?im)^\s*substacks referenced above:.*\r?\n(?:\s*@\s*\r?\n)*",
+        "",
+        text_without_view_online,
+    )
+    # remove any leftover standalone @ lines
+    text_without_at_lines = re.sub(
+        r"(?m)^\s*@\s*$\r?\n?",
+        "",
+        text_without_substack_refs,
+    )
     # get rid of plain text disclaimer on beehiiv emails
     text_without_plain_text_disclaimer = re.sub(
         r"You are reading a plain text version of this post. For the best experience, copy and paste this link in your browser to view the post online:",
         "",
-        text_without_view_online,
+        text_without_at_lines,
     )
     # get rid of social links at top of Money Illusion posts
     text_without_social_links = re.sub(
