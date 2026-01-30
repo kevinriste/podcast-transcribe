@@ -87,6 +87,17 @@ def is_nfl_related(title, description):
         return False
 
 
+def get_entry_link(entry):
+    link = getattr(entry, "link", None)
+    if link:
+        return link
+    for candidate in entry.get("links") or []:
+        href = candidate.get("href")
+        if href:
+            return href
+    return ""
+
+
 def fetch_and_process_html(url, final_request=False, headers=None, request_body=None):
     """
     Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
@@ -257,7 +268,7 @@ for feed in feeds:
                 f"{output_folder}/{date_stamp}-{feed_prefix_for_filename}{entry_title_for_filename}.txt"
             )
             meta_title = entry_title_raw
-            original_url = parsed_feed_entry.link
+            original_url = get_entry_link(parsed_feed_entry)
             write_output = True
 
             if feed == bill_simmons_feed:
