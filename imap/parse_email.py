@@ -279,6 +279,9 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 )
             if source_kind == "beehiiv":
                 email_text_plain = markdown_to_plain_text(email_text_raw)
+                # Beehiiv sometimes leaves Markdown emphasis markers in plain text.
+                email_text_plain = re.sub(r"__([^_]+)__", r"\1", email_text_plain)
+                email_text_plain = re.sub(r"_([^_]+)_", r"\1", email_text_plain)
             else:
                 email_text_plain = email_text_raw
             email_text_without_urls = re.sub(
