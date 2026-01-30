@@ -43,9 +43,11 @@ echo "Main--Run Parse RSS script"
 /home/flog99/.local/bin/uv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
-echo "Main--Copy email text to be in Google, AWS and OpenAI directories"
-cp -r text-to-speech/text-input text-to-speech-polly
-cp -r text-to-speech/text-input text-to-speech-openai
+echo "Main--Archive a copy of input text files"
+mkdir -p text-to-speech/input-text-archive
+if compgen -G "text-to-speech/text-input/*.txt" > /dev/null; then
+    cp -n text-to-speech/text-input/*.txt text-to-speech/input-text-archive/
+fi
 cd text-to-speech
 echo "Main--Remove empty text files"
 find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;

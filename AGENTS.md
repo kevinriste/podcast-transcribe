@@ -24,7 +24,6 @@
   - `Source: <a href="...">...</a>`
   - Uses `<br/><br/>` separators.
 - Beehiiv link text uses `META_SOURCE_NAME` (URL still in href).
-- OpenAI/AWS Polly scripts do not add summaries or ID3 tags.
 
 ## Dropcaster
 - Template: `dropcaster-docker/dropcaster/templates/channel.rss.erb` (no overrides).
@@ -45,6 +44,7 @@
 - Text inputs: `text-to-speech/text-input`
 - Empty inputs: `text-to-speech/text-input-empty-files`
 - Oversized inputs: `text-to-speech/text-input-too-big`
+- Input text archive: `text-to-speech/input-text-archive`
 - RSS GUID tracking: `rss/feed-guids/`
 - Audio output: `dropcaster-docker/audio`
 - Archive: `dropcaster-docker/audio-archive`

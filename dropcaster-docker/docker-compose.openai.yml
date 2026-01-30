@@ -1,6 +1,0 @@
-version: '3.3'
-services:
-  dropcaster:
-    build: ./dropcaster
-    volumes:
-      - ./audio-openai:/public_html
