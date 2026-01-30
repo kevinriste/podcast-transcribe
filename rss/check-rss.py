@@ -148,16 +148,11 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
         logging.error(
             f"Kevin's or Wayback Machine's version of {url} did not include the full article."
         )
-        gotify_server = os.environ.get("GOTIFY_SERVER")
-        gotify_token = os.environ.get("GOTIFY_TOKEN")
         debug_message = "Error: Incomplete NYT article in Wayback Machine"
         debug_output = f"{url}: {content_text}"
 
-        gotify_url = f"{gotify_server}/message?token={gotify_token}"
-        data = {"title": debug_message, "message": debug_output, "priority": 2}
-
         if final_request:
-            requests.post(gotify_url, data=data)
+            send_gotify_notification(debug_message, debug_output, priority=2)
         return None
 
     return content_text
@@ -417,20 +412,11 @@ for feed in feeds:
                 ) as e:
                     logging.error(f"Error occurred: {e}")
                     logging.info(f"{original_url} URL caused the issue.")
-                    gotify_server = os.environ.get("GOTIFY_SERVER")
-                    gotify_token = os.environ.get("GOTIFY_TOKEN")
                     debug_message = "RSS URL catastrophic error"
                     debug_output = f"{original_url}: {e}"
 
-                    gotify_url = f"{gotify_server}/message?token={gotify_token}"
-                    data = {
-                        "title": debug_message,
-                        "message": debug_output,
-                        "priority": 6,
-                    }
-
                     if send_error_with_gotify:
-                        requests.post(gotify_url, data=data)
+                        send_gotify_notification(debug_message, debug_output, priority=6)
                     break
             else:
                 soup = BeautifulSoup(
