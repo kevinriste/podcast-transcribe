@@ -354,7 +354,8 @@ for feed in feeds:
                             ]
                             snapshots_json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-snapshots-json.json"
                             with pathlib.Path(snapshots_json_filename).open(
-                                "w", encoding="utf-8",
+                                "w",
+                                encoding="utf-8",
                             ) as json_file:
                                 json.dump(snapshots_list, json_file, indent=2)
 

@@ -93,7 +93,10 @@ def extract_links_from_email(msg):
             links.append({"href": anchor["href"], "text": text})
     if msg.text:
         logging.info("Parsing plain text to extract links")
-        links.extend({"href": url, "text": ""} for url in re.findall(r"https?://[^\s)<>\"']+", msg.text))
+        links.extend(
+            {"href": url, "text": ""}
+            for url in re.findall(r"https?://[^\s)<>\"']+", msg.text)
+        )
     deduped = []
     seen = set()
     for link in links:
@@ -306,7 +309,8 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 email_text_without_empty_brackets,
             )
             email_text_without_empty_angles = email_text_without_empty_parens.replace(
-                r"<>", "",
+                r"<>",
+                "",
             )
             if len(email_text_without_empty_angles) > 0:
                 newsletter_text_for_tts = (
