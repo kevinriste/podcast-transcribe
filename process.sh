@@ -1,24 +1,12 @@
 #!/bin/bash
 
 FIRST_LOG_DATE=$1
-
-error_handler() {
-    local exit_code=$?
-    local debug_message=$(echo "Podcast Transcribe error: '$BASH_COMMAND' with exit code $exit_code")
-    local debug_output=$(awk -v date="$FIRST_LOG_DATE" 'print_next {print} $0 ~ date {print; print_next=1}' /home/flog99/process-log.log)
-
-    echo "Main--Exit code error- sending notification with Gotify"
-    # Send message to Gotify, don't display anything if successful
-    curl --silent --show-error "$GOTIFY_SERVER/message?token=$GOTIFY_TOKEN" -F "title=$debug_message" -F "message=$debug_output" -F "priority=9" > /dev/null
-
-    echo "Main--$debug_message"
-    echo "Main--End Script (failure)"
-
-    exit $exit_code
-}
-
-# Trap any error signal (ERR) and call the error_handler function
-trap error_handler ERR
+RUN_LOG=${RUN_LOG:-}
+if [ -n "$RUN_LOG" ]; then
+    mkdir -p "$(dirname "$RUN_LOG")"
+    # Mirror stdout/stderr to the per-run log for reliable error reporting.
+    exec > >(tee -a "$RUN_LOG") 2>&1
+fi
 
 # Enable the script to exit if any command returns a non-zero status
 set -e
@@ -46,7 +34,7 @@ export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailP
 echo "Main--Archive a copy of input text files"
 mkdir -p text-to-speech/input-text-archive
 if compgen -G "text-to-speech/text-input/*.txt" > /dev/null; then
-    cp -n text-to-speech/text-input/*.txt text-to-speech/input-text-archive/
+    cp --update=none text-to-speech/text-input/*.txt text-to-speech/input-text-archive/
 fi
 cd text-to-speech
 echo "Main--Remove empty text files"
@@ -80,7 +68,4 @@ if [ "$newHash" != "$oldHash" ]; then
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
-echo "Main--Clean up Docker"
-docker container prune -f
-docker volume prune -f
 echo "Main--End Script (success)"

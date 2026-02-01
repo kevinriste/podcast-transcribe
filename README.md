@@ -6,7 +6,7 @@ I created this in order to consume Substack subscriptions in the form of a podca
 
 ## How it works
 
-- `process-caller.sh` is the cron entrypoint and adds timestamps to logs.
+- `process-caller.sh` is the cron entrypoint, adds timestamps, and writes per-run logs.
 - `process.sh` orchestrates the pipeline every 20 minutes:
   - IMAP parsing (`imap/parse_email.py`) downloads unseen emails and writes text inputs with metadata headers.
   - RSS parsing (`rss/check-rss.py`) reads `rss/feeds.txt`, fetches new items, and writes text inputs with metadata headers.
@@ -25,6 +25,7 @@ Optional scripts:
 - Python via `pyenv` + `uv` for IMAP/RSS/Google TTS (pyproject requires >=3.9).
 - Playwright browsers installed for IMAP/RSS fetches.
 - `ffmpeg` available on PATH (required by `pydub`).
+- Dropcaster is a git submodule (`dropcaster-docker/dropcaster`), so run `git submodule update --init --recursive` after cloning.
 - Local article scraper services:
   - IMAP link mode: `http://localhost:3001/fetch?url=...`
   - RSS fetcher: `http://localhost:3002/fetch?url=...`
@@ -106,6 +107,7 @@ The Google TTS script applies these transformations in order:
 - Audio output: `dropcaster-docker/audio`
 - Archive: `dropcaster-docker/audio-archive`
 - Logs (cron): `/home/flog99/process-log.log`
+- Logs (per-run): `/home/flog99/process-log-runs/*.log`
 
 ## Summaries and descriptions
 
