@@ -1,6 +1,6 @@
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -9,4 +9,4 @@ ignore = ["D", "CPY"]
 
 [tool.basedpyright]
 typeCheckingMode = "all"
-pythonVersion = "3.9"
+pythonVersion = "3.12.8"
