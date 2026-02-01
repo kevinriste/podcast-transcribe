@@ -24,8 +24,12 @@ Priority levels:
 - Clean or deduplicate archived inputs in `text-to-speech/input-text-archive` as needed.
 - Guard Beehiiv parsing when `msg.text` is missing by falling back to `msg.html` or an empty string to avoid IMAP crashes.
 - Handle RSS entries without `content[0].value` by falling back to `summary`/`description`.
+- Consider splitting the monolithic cron flow into per-stage steps with isolated retries (IMAP, RSS, TTS, Dropcaster) to reduce “one failure blocks all” behavior.
+- Replace shell orchestration with a small Python runner (or Makefile + Python) to improve error handling and portability without changing behavior.
+- Parameterize hardcoded paths and service URLs via env vars to improve portability (paths, local scraper endpoints, log locations).
 
 ## P3 Low
 
 - Add a simple run ID to logs and rotate `/home/flog99/process-log.log`.
 - Add health checks for local scraper services and Gotify before attempting requests.
+- Consider containerizing the pipeline (not just Dropcaster) to reduce host-specific dependencies (pyenv/uv/playwright/cron).
