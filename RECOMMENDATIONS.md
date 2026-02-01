@@ -8,7 +8,7 @@ Priority levels:
 
 ## P0 Critical
 
-- Remove or tightly scope `docker container prune -f` and `docker volume prune -f` from the cron path; they can delete unrelated stopped containers and unused volumes on the host.
+- N/A (no current P0 items)
 
 ## P1 High
 
