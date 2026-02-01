@@ -1,5 +1,0 @@
-services:
-  dropcaster:
-    build: ./dropcaster
-    volumes:
-      - ./audio:/public_html
