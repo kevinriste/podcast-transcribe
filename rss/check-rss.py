@@ -14,6 +14,7 @@ import waybackpy
 from bs4 import BeautifulSoup
 from dateutil import parser
 from openai import OpenAI
+from pydantic import BaseModel
 from playwright.sync_api import sync_playwright
 from requests.adapters import HTTPAdapter
 from trafilatura import bare_extraction, extract
@@ -73,15 +74,45 @@ def send_gotify_notification(title, message, priority=6):
 def is_nfl_related(title, description):
     if not title and not description:
         return False
+
+    class NflCheck(BaseModel):
+        is_nfl: bool
+
     prompt = (
-        "Determine if this podcast episode involves NFL football. "
-        "Respond with YES or NO only.\n\n"
-        f"Title: {title}\n\nDescription:\n{description}"
+        "Determine if this podcast episode involves NFL football."
+        " Return JSON with {\"is_nfl\": true|false}."
     )
     try:
         client = get_openai_client()
-        response = client.responses.create(model=summary_model, input=prompt)
-        return response.output_text.strip().upper().startswith("YES")
+        try:
+            response = client.responses.parse(
+                model=summary_model,
+                input=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": f"Title: {title}\n\nDescription:\n{description}",
+                    },
+                ],
+                text_format=NflCheck,
+            )
+            if response.output_parsed is not None:
+                return response.output_parsed.is_nfl
+        except AttributeError:
+            response = client.responses.create(
+                model=summary_model,
+                input=prompt + f"\n\nTitle: {title}\n\nDescription:\n{description}",
+                text={"format": {"type": "json_object"}},
+            )
+        output_text = (response.output_text or "").strip()
+        try:
+            payload = json.loads(output_text)
+            is_nfl = payload.get("is_nfl")
+            if isinstance(is_nfl, bool):
+                return is_nfl
+        except Exception:
+            pass
+        return output_text.upper().startswith("YES")
     except Exception as exc:
         logging.error(f"NFL relevance check failed: {exc}")
         return False
