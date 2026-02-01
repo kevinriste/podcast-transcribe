@@ -331,6 +331,37 @@ def text_to_speech(incoming_filename) -> None:
             logging.warning(
                 f"Skipping {filename.name}: file is empty after cleaning.",
             )
+            gotify_server = os.environ.get("GOTIFY_SERVER")
+            gotify_token = os.environ.get("GOTIFY_TOKEN")
+            if gotify_server and gotify_token:
+                debug_message = "Skipping empty text-to-speech content"
+                debug_output = (
+                    f"Skipping {filename.name}: file is empty after cleaning. "
+                    "Moving to holding directory."
+                )
+                gotify_url = f"{gotify_server}/message?token={gotify_token}"
+                data = {
+                    "title": debug_message,
+                    "message": debug_output,
+                    "priority": 6,
+                }
+                requests.post(gotify_url, data=data)
+            else:
+                logging.warning("Gotify env vars not set; skipping notification.")
+
+            # Move the file to a separate directory so the processing isn't repeatedly tried
+            parent = pathlib.Path(pathlib.Path(input_dir).resolve()).parent
+            target_dir = os.path.join(parent, "text-input-empty-after-cleaning")
+            pathlib.Path(target_dir).mkdir(exist_ok=True, parents=True)
+
+            shutil.move(
+                incoming_filename,
+                os.path.join(target_dir, pathlib.Path(incoming_filename).name),
+            )
+            logging.info(
+                "Moved empty-after-cleaning file to %s",
+                target_dir,
+            )
         elif len(content_text_cleaned) >= character_limit:
             logging.warning(
                 f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit.",
