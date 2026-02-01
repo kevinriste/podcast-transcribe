@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["ALL"]
+preview = true
+ignore = ["D", "CPY"]
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.9"

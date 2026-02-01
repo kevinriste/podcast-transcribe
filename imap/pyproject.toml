@@ -27,13 +27,7 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 88
-target-version = "py39"
-
-[tool.ruff.lint]
-select = ["ALL"]
-preview = true
+extend = "../pyproject.toml"
 
 [tool.basedpyright]
-typeCheckingMode = "all"
-pythonVersion = "3.9"
+extends = "../pyproject.toml"

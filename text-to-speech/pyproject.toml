@@ -22,23 +22,9 @@ dev = [
 ]
 
 [tool.ruff]
-line-length = 88
-target-version = "py39"
-
-[tool.ruff.lint]
-select = ["ALL"]
-preview = true
+extend = "../pyproject.toml"
 
 [tool.basedpyright]
-typeCheckingMode = "strict"
-pythonVersion = "3.9"
-strictListInference = true
-strictDictionaryInference = true
-strictSetInference = true
-reportImplicitOverride = "error"
-reportMissingTypeStubs = "error"
-reportPrivateUsage = "error"
-reportUnusedCallResult = "error"
-reportUnnecessaryTypeIgnoreComment = "error"
+extends = "../pyproject.toml"
 
 [tool.uv.sources]
