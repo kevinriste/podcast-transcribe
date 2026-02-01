@@ -78,41 +78,23 @@ def is_nfl_related(title, description):
     class NflCheck(BaseModel):
         is_nfl: bool
 
-    prompt = (
-        "Determine if this podcast episode involves NFL football."
-        " Return JSON with {\"is_nfl\": true|false}."
-    )
+    prompt = "Determine if this podcast episode involves NFL football."
     try:
         client = get_openai_client()
-        try:
-            response = client.responses.parse(
-                model=summary_model,
-                input=[
-                    {"role": "system", "content": prompt},
-                    {
-                        "role": "user",
-                        "content": f"Title: {title}\n\nDescription:\n{description}",
-                    },
-                ],
-                text_format=NflCheck,
-            )
-            if response.output_parsed is not None:
-                return response.output_parsed.is_nfl
-        except AttributeError:
-            response = client.responses.create(
-                model=summary_model,
-                input=prompt + f"\n\nTitle: {title}\n\nDescription:\n{description}",
-                text={"format": {"type": "json_object"}},
-            )
-        output_text = (response.output_text or "").strip()
-        try:
-            payload = json.loads(output_text)
-            is_nfl = payload.get("is_nfl")
-            if isinstance(is_nfl, bool):
-                return is_nfl
-        except Exception:
-            pass
-        return output_text.upper().startswith("YES")
+        response = client.responses.parse(
+            model=summary_model,
+            input=[
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": f"Title: {title}\n\nDescription:\n{description}",
+                },
+            ],
+            text_format=NflCheck,
+        )
+        if response.output_parsed is not None:
+            return response.output_parsed.is_nfl
+        return False
     except Exception as exc:
         logging.error(f"NFL relevance check failed: {exc}")
         return False
