@@ -1,48 +1,71 @@
 #!/bin/bash
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Start Script"
+
+FIRST_LOG_DATE=$1
+RUN_LOG=${RUN_LOG:-}
+if [ -n "$RUN_LOG" ]; then
+    mkdir -p "$(dirname "$RUN_LOG")"
+    # Mirror stdout/stderr to the per-run log for reliable error reporting.
+    exec > >(tee -a "$RUN_LOG") 2>&1
+fi
+
+# Enable the script to exit if any command returns a non-zero status
+set -e
+
+echo "Main--Start Script"
 export PYENV_ROOT="/home/flog99/.pyenv"
 command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"
 eval "$(pyenv init -)"
 cd /home/flog99/dev/podcast-transcribe/imap
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install IMAP Parse Emails dependencies"
-pipenv install
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run IMAP Parse Emails script"
-pipenv run python3 parse_email.py
+echo "Main--Install IMAP Parse Emails dependencies"
+/home/flog99/.local/bin/uv sync
+echo "Main--Run IMAP Parse Emails script"
+/home/flog99/.local/bin/uv run python3 parse_email.py
+echo "Main--Ensure Playwright is up to date"
+/home/flog99/.local/bin/uv run playwright install
 cd /home/flog99/dev/podcast-transcribe/rss
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Parse RSS dependencies"
-pipenv install
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Parse RSS script"
-pipenv run python3 check-rss.py
+echo "Main--Install Parse RSS dependencies"
+/home/flog99/.local/bin/uv sync
+echo "Main--Ensure Playwright is up to date"
+/home/flog99/.local/bin/uv run playwright install
+echo "Main--Run Parse RSS script"
+/home/flog99/.local/bin/uv run python3 check-rss.py
 cd ..
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Copy email text to be in Google and AWS directories"
-cp -r text-to-speech/text-input text-to-speech-polly
+echo "Main--Archive a copy of input text files"
+mkdir -p text-to-speech/input-text-archive
+if compgen -G "text-to-speech/text-input/*.txt" > /dev/null; then
+    cp --update=none text-to-speech/text-input/*.txt text-to-speech/input-text-archive/
+fi
 cd text-to-speech
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Remove empty text files"
+echo "Main--Remove empty text files"
 find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Install Google Text to Speech dependencies"
-pipenv install
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Text to Speech script"
-pipenv run python3 text_to_speech.py
+echo "Main--Install Google Text to Speech dependencies"
+/home/flog99/.local/bin/uv sync
+echo "Main--Run Google Text to Speech script"
+/home/flog99/.local/bin/uv run python3 text_to_speech.py
 cd ..
 cd dropcaster-docker
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Check if podcast files changed"
-echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash-new.txt
-newHash=$(cat audio-hash-new.txt)
-oldHash=$(cat audio-hash.txt)
+echo "Main--Archive audio files older than 8 weeks (weekly cutoff)"
+weekly_cutoff=$(date -d "last monday -56 days" +%Y-%m-%d)
+archive_dir="./audio-archive"
+mkdir -p "$archive_dir"
+find ./audio -type f -name "*.mp3" ! -newermt "$weekly_cutoff" -print -exec mv {} "$archive_dir" \;
+echo "Main--Check if podcast files changed"
+newHash=$(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum)
+if [ -f audio-hash.txt ]; then
+    oldHash=$(cat audio-hash.txt)
+else
+    oldHash=""
+fi
 if [ "$newHash" != "$oldHash" ]; then
-    echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Run Google Dropcaster"
+    echo "Main--Run Dropcaster"
     start=$(date +%s)
-    docker compose run dropcaster dropcaster --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
+    docker compose down --remove-orphans
+    docker compose build
+    docker compose run dropcaster dropcaster --parallel_type processes --parallel_level 8 --url "https://${PODCAST_DOMAIN_PRIMARY}" > ./new-index.rss
     cp ./new-index.rss ./audio/index.rss
-    echo $(ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum) > ./audio-hash.txt
+    ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum > ./audio-hash.txt
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
 fi
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Send IP to Google DNS"
-curl "https://${GOOGLE_DOMAIN_1_KEY}@domains.google.com/nic/update?hostname=${GOOGLE_DOMAIN_1}"
-curl "https://${GOOGLE_DOMAIN_2_KEY}@domains.google.com/nic/update?hostname=${GOOGLE_DOMAIN_2}"
-echo ""
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--Clean up Docker"
-docker system prune -f
-echo $(TZ=America/Chicago date --iso-8601=seconds)"--Main--End Script"
+echo "Main--End Script (success)"

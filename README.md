@@ -4,56 +4,136 @@
 
 I created this in order to consume Substack subscriptions in the form of a podcast, because I'm much more effective at listening to podcasts than I am at reading emails.
 
-## Explanation
+## How it works
 
-The process.sh script is set up as a cron job. Every 20 minutes, it uses a Python script to  check the podcast-specific email account for new emails. If they exist, it downloads them locally.
+- `process-caller.sh` is the cron entrypoint, adds timestamps, and writes per-run logs.
+- `process.sh` orchestrates the pipeline every 20 minutes:
+  - IMAP parsing (`imap/parse_email.py`) downloads unseen emails and writes text inputs with metadata headers.
+  - RSS parsing (`rss/check-rss.py`) reads `rss/feeds.txt`, fetches new items, and writes text inputs with metadata headers.
+  - Archives a copy of text inputs to `text-to-speech/input-text-archive`.
+  - Google TTS (`text-to-speech/text_to_speech.py`) chunks text, generates MP3s, writes ID3 tags, and moves audio into `dropcaster-docker/audio`.
+  - Dropcaster renders the RSS feed when audio changes.
+  - Audio older than 8 weeks is archived to `dropcaster-docker/audio-archive` before Dropcaster runs.
 
-The next Python script then checks the local directory for unprocessed emails. If they exist, it breaks the emails into chunks between 4000 and 5000 characters, stopping at the first whitespace to ensure the text-to-speech processing doesn't cut off individual words. The Google text-to-speech API has a limit of 5,000 characters at a time. Each chunk of the email is sent to Google for processing and an mp3 is returned in response. The mp3's are saved in order, and stitched together afterward. Once the stitching is confirmed successful, the file is moved to the podcast audio folder, and the email is removed from the local directory. There are safeguards for the maximum size of the email text to ensure that my Gooogle Cloud account isn't charged too much for any individual email, although a processing error of some kind could still cause issues since there isn't a full safeguard in place to shut down the account if too many characters are processed in a month. There is also a check to avoid processing empty emails. Some boilerplate Substack items are stripped out, as well as URL's, since they don't make for good podcast listening.
+Optional scripts:
+- None (OpenAI/AWS TTS scripts removed).
 
-After this, a Docker container called dropcaster by nerab processes the audio files into a podcast feed. Every time this takes place, a hash is taken of the audio directory so that dropcaster only needs to run if the directory has changed.
+## Runtime requirements
 
-The script then updates Google DNS with my current IP in case it has changed since last time.
+- Ubuntu + cron (current schedule: `*/20 * * * * bash -l /home/flog99/dev/podcast-transcribe/process-caller.sh >> /home/flog99/process-log.log 2>&1`)
+- Docker + Docker Compose (Dropcaster and nginx-proxy stack).
+- Python via `pyenv` + `uv` for IMAP/RSS/Google TTS (pyproject requires >=3.9).
+- Playwright browsers installed for IMAP/RSS fetches.
+- `ffmpeg` available on PATH (required by `pydub`).
+- Dropcaster is a git submodule (`dropcaster-docker/dropcaster`), so run `git submodule update --init --recursive` after cloning.
+- Local article scraper services:
+  - IMAP link mode: `http://localhost:3001/fetch?url=...`
+  - RSS fetcher: `http://localhost:3002/fetch?url=...`
 
-Lastly, Docker cleanup is run since the dropcaster run leaves behind a new stopped container every single time.
+## Intake methods (end-to-end)
 
-There is also a second script that can run which uses the AWS Polly text-to-speech service. I have tried this out but I prefer the Google service. Others say that the Polly one is more natural-sounding. In order for the AWS script to work, AWS credentials need to be set at the ENV level on the machine running the script.
+### Email: plain newsletters (Substack/Beehiiv/other)
+1) `imap/parse_email.py` reads unread IMAP messages.
+2) Email text is cleaned; Beehiiv sources are converted to plain text.
+3) A source URL is extracted from the email HTML.
+   - Substack: chooses the post link and cleans it to `publication_id` + `post_id`.
+   - Beehiiv: uses the “Read Online” link and displays the sender name.
+   - Unknown sources: sends a Gotify notification and leaves the source URL blank.
+4) Metadata is prepended to the text input:
+   - `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`
+5) The text is written to `text-to-speech/text-input/*.txt`.
 
-### Environment variables required
+### Email: "link" subject (full article fetch)
+1) `imap/parse_email.py` treats the email body as a URL.
+2) The URL is fetched via the local scraper (`http://localhost:3001/fetch`).
+3) Metadata is prepended (`META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND=url`).
+4) The article text is written to `text-to-speech/text-input/*.txt`.
 
-This is the list of ENV variables that need to be set locally for this script to work.
+### Email: "youtube" subject
+1) `imap/parse_email.py` treats the email body as a YouTube URL.
+2) `yt-dlp` downloads audio and converts it to MP3.
+3) A summary is generated from the YouTube description.
+4) ID3 tags are written directly to the MP3 (description + source link).
 
-- GMAIL_PRIMARY_ACCOUNT
+### RSS feeds
+1) `rss/check-rss.py` polls feeds in `rss/feeds.txt`.
+2) For NYT feeds, it uses the local scraper and (if needed) Wayback Machine.
+3) For other feeds, it extracts text from RSS entry content.
+4) Metadata is prepended and written to `text-to-speech/text-input/*.txt`.
+5) Feed GUIDs are tracked in `rss/feed-guids/` to avoid reprocessing.
 
-    Primary email of user, used for domain registration
+## Text-to-speech (Google path)
+1) `text-to-speech/text_to_speech.py` reads `text-to-speech/text-input/*.txt`.
+2) Metadata is parsed and stripped from the content.
+3) The content is cleaned and chunked (3–5k characters per request).
+4) A 2–3 sentence summary is generated by `gpt-5-mini`.
+5) The description is assembled:
+   - Summary
+   - `Title: <title>`
+   - `Source: <a href="...">...</a>`
+6) MP3 chunks are stitched into a single file and saved in `dropcaster-docker/audio`.
+7) ID3 tags are written (title + description + source URL).
 
-- GMAIL_PODCAST_ACCOUNT
+## Cleaning details
 
-    Email account where all emails will be turned into podcast episodes
+### Email cleaning (`imap/parse_email.py`)
+Plain newsletter text is normalized before writing to the text input file:
+- If the sender is Beehiiv (`x-beehiiv-ids`), convert markdown to HTML and extract plain text.
+- Strip all URLs using a URL regex.
+- Remove empty bracket pairs: `[]`, `()`, `<>`.
+- Prefix the body with `From.` and `Subject.` lines (using the unstripped subject).
 
-- GMAIL_PODCAST_ACCOUNT_APP_PASSWORD
+### TTS cleaning (`text-to-speech/text_to_speech.py`)
+The Google TTS script applies these transformations in order:
+- Remove runs of 3+ dashes (`---` → ``).
+- Remove all URLs using a URL regex.
+- Remove empty bracket pairs: `[]`, `()`, `<>`.
+- Collapse non-newline whitespace to single spaces.
+- Remove the “Unsubscribe” section if it appears after a blank line.
+- Remove “View this post on the web at” intro text.
+- Remove Beehiiv’s “plain text version” disclaimer text.
+- Remove a specific social-links block used by some newsletters (Facebook/Twitter/LinkedIn lines).
+- Remove Beehiiv image caption blocks (`View image: ... Caption: ...`).
+- Replace “Keynesian” with “Cainzeean” (pronunciation fix).
+- Add punctuation at line ends so narration pauses (`<word>\n` → `<word>.\n`).
 
-    App password for podcast account
+## Paths
 
-- GOOGLE_DOMAIN_1
+- Text inputs: `text-to-speech/text-input`
+- Empty inputs: `text-to-speech/text-input-empty-files`
+- Oversized inputs: `text-to-speech/text-input-too-big`
+- Input text archive: `text-to-speech/input-text-archive`
+- RSS GUID tracking: `rss/feed-guids/`
+- Audio output: `dropcaster-docker/audio`
+- Archive: `dropcaster-docker/audio-archive`
+- Logs (cron): `/home/flog99/process-log.log`
+- Logs (per-run): `/home/flog99/process-log-runs/*.log`
 
-    Primary domain for Google DNS
+## Summaries and descriptions
 
-- GOOGLE_DOMAIN_1_KEY
+- Summary model: `gpt-5-mini` (2–3 sentences).
+- Google TTS builds the ID3 description as:
+  - Summary
+  - `Title: <title>`
+  - `Source: <a href="...">...</a>`
+  - Separator: `<br/><br/>`
+- OpenAI/AWS TTS scripts were removed; summaries/ID3 tags are handled by the Google TTS path.
 
-    Username:password combo for setting Google DNS
+## Environment variables and credentials
 
-- GOOGLE_DOMAIN_2
+Core pipeline:
+- `GMAIL_PODCAST_ACCOUNT`, `GMAIL_PODCAST_ACCOUNT_APP_PASSWORD`
+- `OPENAI_API_KEY` (summaries)
+- `GOTIFY_SERVER`, `GOTIFY_TOKEN`
+- `PODCAST_DOMAIN_PRIMARY`, `PODCAST_DOMAIN_SECONDARY`
+- `GOOGLE_APPLICATION_CREDENTIALS` (path to the Google TTS service account JSON; `process.sh` exports this)
 
-    Secondary domain for Google DNS
+nginx-proxy + ACME:
+- `GMAIL_PRIMARY_ACCOUNT` (DEFAULT_EMAIL for ACME)
+- `CF_TOKEN`, `CF_ACCOUNT_ID` (Cloudflare DNS-01 challenge)
 
-- GOOGLE_DOMAIN_2_KEY
+## Manual runs
 
-    Username:password combo for setting Google DNS
-
-- PODCAST_DOMAIN_PRIMARY
-
-    Primary podcast domain
-
-- PODCAST_DOMAIN_SECONDARY
-
-    Secondary (AWS Polly) podcast domain
+- IMAP parser: `cd imap && /home/flog99/.local/bin/uv run python3 parse_email.py`
+- RSS parser: `cd rss && /home/flog99/.local/bin/uv run python3 check-rss.py`
+- Google TTS: `cd text-to-speech && /home/flog99/.local/bin/uv run python3 text_to_speech.py`

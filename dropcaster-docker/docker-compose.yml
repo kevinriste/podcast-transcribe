@@ -1,6 +1,5 @@
-version: '3.3'
 services:
   dropcaster:
-    image: nerab/dropcaster
+    build: ./dropcaster
     volumes:
       - ./audio:/public_html

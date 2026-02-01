@@ -1,0 +1,19 @@
+[project]
+name = "text-to-speech"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "google-cloud-texttospeech>=2.23.0",
+    "mutagen>=1.47.0",
+    "openai>=1.50.0",
+    "pydub>=0.25.1",
+    "requests>=2.32.3",
+]
+
+[dependency-groups]
+dev = []
+
+[tool.uv.sources]

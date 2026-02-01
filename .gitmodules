@@ -1,0 +1,4 @@
+[submodule "dropcaster-docker/dropcaster"]
+	path = dropcaster-docker/dropcaster
+	url = https://github.com/kevinriste/dropcaster.git
+	branch = feature/add-parallel-processing
