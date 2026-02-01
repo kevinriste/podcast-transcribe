@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import pathlib
 import re
 import shutil
 from datetime import datetime, timedelta
@@ -10,16 +11,16 @@ import msgspec
 import playwright.sync_api
 import requests
 import urllib3
-import waybackpy
 from bs4 import BeautifulSoup
 from dateutil import parser
 from openai import OpenAI
-from pydantic import BaseModel
 from playwright.sync_api import sync_playwright
+from pydantic import BaseModel
 from requests.adapters import HTTPAdapter
 from trafilatura import bare_extraction, extract
 from urllib3.util.retry import Retry
 from waybackpy import WaybackMachineCDXServerAPI
+from waybackpy.exceptions import MaximumSaveRetriesExceeded, TooManyRequestsError
 
 local_scraper_url = "http://localhost:3002/fetch"
 bill_simmons_feed = "https://feeds.megaphone.fm/the-bill-simmons-podcast"
@@ -50,7 +51,7 @@ wayback_feeds = [
     "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/thomas-l-friedman/rss.xml",
 ]
 
-feeds = [line.rstrip() for line in open(feedsFile)]
+feeds = [line.rstrip() for line in pathlib.Path(feedsFile).open(encoding="utf-8")]
 
 
 def get_openai_client():
@@ -60,7 +61,7 @@ def get_openai_client():
     return _openai_client
 
 
-def send_gotify_notification(title, message, priority=6):
+def send_gotify_notification(title, message, priority=6) -> None:
     gotify_server = os.environ.get("GOTIFY_SERVER")
     gotify_token = os.environ.get("GOTIFY_TOKEN")
     if not gotify_server or not gotify_token:
@@ -96,7 +97,7 @@ def is_nfl_related(title, description):
             return response.output_parsed.is_nfl
         return False
     except Exception as exc:
-        logging.error(f"NFL relevance check failed: {exc}")
+        logging.exception("NFL relevance check failed: %s", exc)
         return False
 
 
@@ -112,17 +113,19 @@ def get_entry_link(entry):
 
 
 def fetch_and_process_html(url, final_request=False, headers=None, request_body=None):
-    """
-    Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
+    """Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
 
-    Parameters:
+    Parameters
+    ----------
     - url: The URL to fetch the HTML content from.
     - final_request: Boolean indicating if this is the last attempt to fetch the article.
     - headers: Optional dictionary of headers to include in the request (GET or POST).
     - request_body: Optional dictionary of data for making a POST request instead of a GET.
 
-    Returns:
+    Returns
+    -------
     - content_text: The processed HTML content as text, or None if the check fails.
+
     """
     check_phrases = [
         "has been an Opinion columnist",
@@ -130,7 +133,7 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
         "joined Opinion in 2021",
     ]
 
-    logging.info(f"Fetching {url}")
+    logging.info("Fetching %s", url)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -139,21 +142,21 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
 
         try:
             if request_body:
-                logging.info(f"Making GET request to {url} with url query parameter")
+                logging.info("Making GET request to %s with url query parameter", url)
                 page.goto(
                     f"{url}?url={request_body['url']}",
                     wait_until="networkidle",
                     timeout=180000,
                 )
             else:
-                logging.info(f"Making GET request to {url}")
+                logging.info("Making GET request to %s", url)
                 page.goto(url, wait_until="networkidle", timeout=180000)
 
             # Get rendered HTML content
             html_content = page.content()
 
         except Exception as e:
-            logging.error(f"Error occurred while fetching {url}: {e}")
+            logging.exception("Error occurred while fetching %s: %s", url, e)
             html_content = None
 
         finally:
@@ -170,7 +173,8 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
 
     if all(phrase not in content_text for phrase in check_phrases):
         logging.error(
-            f"Kevin's or Wayback Machine's version of {url} did not include the full article."
+            "Kevin's or Wayback Machine's version of %s did not include the full article.",
+            url,
         )
         debug_message = "Error: Incomplete NYT article in Wayback Machine"
         debug_output = f"{url}: {content_text}"
@@ -200,7 +204,7 @@ for feed in feeds:
         feed_updated_raw = getattr(parsed_feed.feed, "updated", None)
         if feed_updated_raw:
             parsed_feed_updated_date = parser.parse(feed_updated_raw).replace(
-                tzinfo=None
+                tzinfo=None,
             )
             max_timedelta_since_feed_last_updated = timedelta(days=7)
             timedelta_since_feed_last_updated = now - parsed_feed_updated_date
@@ -214,22 +218,24 @@ for feed in feeds:
                     > error_threshold_timedelta_since_feed_last_updated
                 ):
                     logging.error(
-                        f"Error: {clean_feed_name}-{date_string} was more than 30 days old"
+                        "Error: %s-%s was more than 30 days old",
+                        clean_feed_name,
+                        date_string,
                     )
 
-                    with open(json_filename, "wb") as json_file:
-                        json_file.write(json_version_of_parsed_feed)
+                    pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
                 else:
                     logging.info(
-                        f"{clean_feed_name}-{date_string} was more than 7 days old"
+                        "%s-%s was more than 7 days old",
+                        clean_feed_name,
+                        date_string,
                     )
 
                 # Go to the next feed and stop processing this one
                 continue
 
         if enable_diagnosis:
-            with open(json_filename, "wb") as json_file:
-                json_file.write(json_version_of_parsed_feed)
+            pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
 
         feed_title_raw = parsed_feed.feed.title
         feed_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", feed_title_raw)
@@ -239,8 +245,7 @@ for feed in feeds:
         guid_dir = "./feed-guids"
         guid_filename = f"{guid_dir}/{feed_title_for_filename}.txt"
         try:
-            with open(guid_filename) as guid_file:
-                most_recent_guid = guid_file.read()
+            most_recent_guid = pathlib.Path(guid_filename).read_text(encoding="utf-8")
             # Copy current version of guids txt file
             if enable_diagnosis:
                 shutil.copy(
@@ -269,7 +274,7 @@ for feed in feeds:
 
         if len(feed_entries_before_most_recently_processed) > 0:
             logging.info(
-                f"Processing {len(feed_entries_before_most_recently_processed)} entries for {feed}"
+                f"Processing {len(feed_entries_before_most_recently_processed)} entries for {feed}",
             )
 
         for parsed_feed_entry in feed_entries_before_most_recently_processed:
@@ -277,9 +282,7 @@ for feed in feeds:
             date_stamp = raw_date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
             entry_title_raw = parsed_feed_entry.title
             entry_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", entry_title_raw)
-            output_filename = (
-                f"{output_folder}/{date_stamp}-{feed_prefix_for_filename}{entry_title_for_filename}.txt"
-            )
+            output_filename = f"{output_folder}/{date_stamp}-{feed_prefix_for_filename}{entry_title_for_filename}.txt"
             meta_title = entry_title_raw
             original_url = get_entry_link(parsed_feed_entry)
             write_output = True
@@ -293,12 +296,13 @@ for feed in feeds:
                 entry_description = str(entry_description_raw)
                 if is_nfl_related(entry_title_raw, entry_description):
                     notify_title = (
-                        "New Bill Simmons podcast to whitelist: "
-                        f"{entry_title_raw}"
+                        f"New Bill Simmons podcast to whitelist: {entry_title_raw}"
                     )
                     notify_description = f"https://podly.klt.pw\n\n{entry_description}"
                     send_gotify_notification(
-                        notify_title, notify_description, priority=9
+                        notify_title,
+                        notify_description,
+                        priority=9,
                     )
                 content_text = ""
                 write_output = False
@@ -307,7 +311,7 @@ for feed in feeds:
                     send_error_with_gotify = False
                     max_timedelta_since_article_added_to_feed = timedelta(days=2)
                     timedelta_since_article_added_to_feed = now - raw_date.replace(
-                        tzinfo=None
+                        tzinfo=None,
                     )
                     if (
                         timedelta_since_article_added_to_feed
@@ -325,7 +329,9 @@ for feed in feeds:
                         cdx_api = WaybackMachineCDXServerAPI(original_url, user_agent)
                         snapshots = list(cdx_api.snapshots())
                         sorted_snapshots = sorted(
-                            snapshots, key=lambda x: x.datetime_timestamp, reverse=True
+                            snapshots,
+                            key=lambda x: x.datetime_timestamp,
+                            reverse=True,
                         )
                         two_most_recent_snapshots = sorted_snapshots[:2]
 
@@ -335,7 +341,7 @@ for feed in feeds:
                                 result = {}
                                 for attr in dir(snapshot):
                                     if not attr.startswith("_") and not callable(
-                                        getattr(snapshot, attr)
+                                        getattr(snapshot, attr),
                                     ):
                                         value = getattr(snapshot, attr)
                                         if isinstance(value, datetime):
@@ -347,7 +353,9 @@ for feed in feeds:
                                 snapshot_to_dict(snapshot) for snapshot in snapshots
                             ]
                             snapshots_json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-snapshots-json.json"
-                            with open(snapshots_json_filename, "w") as json_file:
+                            with pathlib.Path(snapshots_json_filename).open(
+                                "w", encoding="utf-8",
+                            ) as json_file:
                                 json.dump(snapshots_list, json_file, indent=2)
 
                         content_text = None
@@ -355,14 +363,14 @@ for feed in feeds:
                         this_year = datetime.now().year
                         calendar_captures_api_url_this_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={this_year}"
                         this_year_response = requests.get(
-                            calendar_captures_api_url_this_year
+                            calendar_captures_api_url_this_year,
                         )
                         this_year_data = this_year_response.json()
 
                         last_year = this_year - 1
                         calendar_captures_api_url_last_year = f"https://web.archive.org/__wb/calendarcaptures/2?url={original_url}&date={last_year}"
                         last_year_response = requests.get(
-                            calendar_captures_api_url_last_year
+                            calendar_captures_api_url_last_year,
                         )
                         last_year_data = last_year_response.json()
 
@@ -412,7 +420,7 @@ for feed in feeds:
                     if content_text is None:
                         for snapshot in two_most_recent_snapshots:
                             content_text = fetch_and_process_html(
-                                url=snapshot.archive_url
+                                url=snapshot.archive_url,
                             )
                             if content_text is not None:
                                 break
@@ -439,21 +447,23 @@ for feed in feeds:
                     playwright.sync_api.TimeoutError,
                     urllib3.exceptions.NewConnectionError,
                     urllib3.exceptions.MaxRetryError,
-                    waybackpy.exceptions.TooManyRequestsError,
-                    waybackpy.exceptions.MaximumSaveRetriesExceeded,
+                    TooManyRequestsError,
+                    MaximumSaveRetriesExceeded,
                 ) as e:
-                    logging.error(f"Error occurred: {e}")
-                    logging.info(f"{original_url} URL caused the issue.")
+                    logging.exception("Error occurred: %s", e)
+                    logging.info("%s URL caused the issue.", original_url)
                     debug_message = "RSS URL catastrophic error"
                     debug_output = f"{original_url}: {e}"
 
                     if send_error_with_gotify:
-                        send_gotify_notification(debug_message, debug_output, priority=6)
+                        send_gotify_notification(
+                            debug_message,
+                            debug_output,
+                            priority=6,
+                        )
                     break
             else:
-                soup = BeautifulSoup(
-                    parsed_feed_entry.content[0].value, "html.parser"
-                )
+                soup = BeautifulSoup(parsed_feed_entry.content[0].value, "html.parser")
                 content_text_raw = soup.get_text()
                 content_text_with_prefix = (
                     (feed_title_raw + ".\n" if feed_title_raw else "")
@@ -464,22 +474,22 @@ for feed in feeds:
                 )
                 content_text = content_text_with_prefix
             if write_output:
-                output_file = open(output_filename, "w")
+                output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
                 metadata_block = "\n".join(
                     [
                         f"META_FROM: {feed_title_raw}",
                         f"META_TITLE: {meta_title}",
                         f"META_SOURCE_URL: {original_url}",
                         "META_SOURCE_KIND: rss",
-                    ]
+                    ],
                 )
                 logging.info("Writing metadata block to text input")
                 output_file.write(metadata_block + "\n\n" + content_text)
                 output_file.close()
-            guidDirExists = os.path.exists(guid_dir)
+            guidDirExists = pathlib.Path(guid_dir).exists()
             if not guidDirExists:
-                os.makedirs(guid_dir)
-            guid_output_file = open(guid_filename, "w")
+                pathlib.Path(guid_dir).mkdir(parents=True)
+            guid_output_file = pathlib.Path(guid_filename).open("w", encoding="utf-8")
             guid_output_file.write(parsed_feed_entry.id)
             guid_output_file.close()
             # Copy new version of guids txt file
@@ -490,5 +500,5 @@ for feed in feeds:
                     f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
                 )
     except Exception as e:
-        logging.error(f"Error occurred: {e}")
-        logging.info(f"{feed} URL caused the issue.")
+        logging.exception("Error occurred: %s", e)
+        logging.info("%s URL caused the issue.", feed)

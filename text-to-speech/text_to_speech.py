@@ -1,7 +1,9 @@
 import functools
 import logging
 import math
+import operator
 import os
+import pathlib
 import re
 import shutil
 import uuid
@@ -40,14 +42,18 @@ def clean_text(text):
     # Remove empty parentheses ()
     text_without_empty_parens = re.sub(r"\(\)", "", text_without_empty_brackets)
     # Remove empty angle brackets <>
-    text_without_empty_angles = re.sub(r"<>", "", text_without_empty_parens)
+    text_without_empty_angles = text_without_empty_parens.replace(r"<>", "")
     # get rid of superfluous non-newline whitespace
     text_without_extra_whitespace = re.sub(
-        r"[^\S\r\n]+", " ", text_without_empty_angles
+        r"[^\S\r\n]+",
+        " ",
+        text_without_empty_angles,
     )
     # get rid of unsubscribe text
     text_without_unsubscribe = re.sub(
-        r"(\r\n|\r|\n){2}Unsubscribe", "", text_without_extra_whitespace
+        r"(\r\n|\r|\n){2}Unsubscribe",
+        "",
+        text_without_extra_whitespace,
     )
     # get rid of intro 'view this post on the web' text
     text_without_view_online = re.sub(
@@ -87,14 +93,17 @@ def clean_text(text):
     )
     # fix pronunciation of Keynesian
     text_with_pronunciation_fix = re.sub(
-        r"Keynesian", "Cainzeean", text_without_image_captions, flags=re.IGNORECASE
+        r"Keynesian",
+        "Cainzeean",
+        text_without_image_captions,
+        flags=re.IGNORECASE,
     )
     # add punctuation to end of lines without it so that narration pauses briefly
-    text_with_line_end_punctuation = re.sub(
-        r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text_with_pronunciation_fix
+    return re.sub(
+        r"(\w)\s*(\r\n|\r|\n)",
+        r"\1.\2",
+        text_with_pronunciation_fix,
     )
-
-    return text_with_line_end_punctuation
 
 
 def split_metadata(raw_text):
@@ -140,7 +149,7 @@ def generate_summary(text, title):
         logging.info("Summary generated")
         return response.output_text.strip()
     except Exception as exc:
-        logging.error(f"Summary generation failed: {exc}")
+        logging.exception("Summary generation failed: %s", exc)
         return ""
 
 
@@ -156,7 +165,7 @@ def build_description(summary, title, source_url, source_kind, source_name=""):
     return "<br/><br/>".join(parts)
 
 
-def apply_id3_tags(mp3_path, description, source_url, title):
+def apply_id3_tags(mp3_path, description, source_url, title) -> None:
     logging.info("Writing ID3 tags to MP3")
     try:
         tags = ID3(mp3_path)
@@ -182,16 +191,16 @@ def to_base36(value):
     return "".join(reversed(digits))
 
 
-def process_files():
+def process_files() -> None:
     txt_files = sorted(glob(f"{input_dir}/*.txt"))
     for f in txt_files:
         text_to_speech(f)
 
 
-def text_to_speech(incoming_filename):
-    with open(incoming_filename, "rb") as filename:
+def text_to_speech(incoming_filename) -> None:
+    with pathlib.Path(incoming_filename).open("rb") as filename:
         logging.info(f"Synthesizing speech for email {filename.name}")
-        name = os.path.basename(filename.name).replace(".txt", "")
+        name = pathlib.Path(filename.name).name.replace(".txt", "")
         data = filename.read()
         input_text_raw = data.decode("utf8")
         metadata, content_text_raw = split_metadata(input_text_raw)
@@ -219,10 +228,14 @@ def text_to_speech(incoming_filename):
                 logging.info("Using metadata for summary and description")
             summary = generate_summary(content_text_cleaned, meta_title)
             description = build_description(
-                summary, meta_title, meta_source_url, meta_source_kind, meta_source_name
+                summary,
+                meta_title,
+                meta_source_url,
+                meta_source_kind,
+                meta_source_name,
             )
             while next_text_starter_position < len(content_text_cleaned):
-                counter = counter + 1
+                counter += 1
                 first_whitespace_after_min_step_size_search = (
                     compiled_regex_for_first_whitespace.search(
                         content_text_cleaned,
@@ -240,7 +253,7 @@ def text_to_speech(incoming_filename):
                     )
                     if first_whitespace_after_min_step_size < len(content_text_cleaned):
                         logging.info(
-                            f"max_step_size met before end of email {filename.name}"
+                            f"max_step_size met before end of email {filename.name}",
                         )
                 text_to_process = content_text_cleaned[
                     next_text_starter_position:first_whitespace_after_min_step_size
@@ -249,33 +262,36 @@ def text_to_speech(incoming_filename):
 
                 synthesis_input = texttospeech.SynthesisInput(text=text_to_process)
                 voice = texttospeech.VoiceSelectionParams(
-                    language_code="en-US", name="en-US-Wavenet-F"
+                    language_code="en-US",
+                    name="en-US-Wavenet-F",
                 )
                 audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.MP3
+                    audio_encoding=texttospeech.AudioEncoding.MP3,
                 )
                 logging.info(
-                    f"Synthesizing speech for file {counter} of at most {max_steps}"
+                    "Synthesizing speech for file %s of at most %s",
+                    counter,
+                    max_steps,
                 )
                 response = client.synthesize_speech(
                     request={
                         "input": synthesis_input,
                         "voice": voice,
                         "audio_config": audio_config,
-                    }
+                    },
                 )
                 mp3_filename = f"{temp_output_dir}/{uuid.uuid4()}.mp3"
-                with open(mp3_filename, "wb") as out:
+                with pathlib.Path(mp3_filename).open("wb") as out:
                     # Write the response to the output file.
                     out.write(response.audio_content)
-                    logging.info(f'Audio content written to file "{mp3_filename}"')
+                    logging.info('Audio content written to file "%s"', mp3_filename)
                 mp3files.append(mp3_filename)
 
             mp3_segments = mp3files
             segments = [AudioSegment.from_mp3(f) for f in mp3_segments]
 
             logging.info(f"Stitching together {len(segments)} mp3 files for {name}")
-            audio = functools.reduce(lambda a, b: a + b, segments)
+            audio = functools.reduce(operator.add, segments)
 
             current_datetime = datetime.now().strftime("%Y%m%d")
             date_and_dash_from_text_file = name[:16]
@@ -290,15 +306,15 @@ def text_to_speech(incoming_filename):
                 # If "-" does not exist, add "-" before and after the date at the end
                 output_filename = f"{final_output_dir}/{name_without_date}-{date_and_dash_from_text_file}{current_datetime}.mp3"
 
-            logging.info(f"Exporting {output_filename}")
+            logging.info("Exporting %s", output_filename)
             audio.export(output_filename, format="mp3")
-            file_title = os.path.splitext(os.path.basename(output_filename))[0]
+            file_title = os.path.splitext(pathlib.Path(output_filename).name)[0]
             file_title = re.sub(r"-\d{8}$", "", file_title)
             if meta_from and meta_title:
                 now = datetime.now()
                 base36_width = 6 if now.year <= 2037 else 7
                 unix_seconds_base36 = to_base36(int(now.timestamp())).zfill(
-                    base36_width
+                    base36_width,
                 )
                 title_for_tag = f"{meta_from}- {unix_seconds_base36}- {meta_title}"
             else:
@@ -307,41 +323,40 @@ def text_to_speech(incoming_filename):
 
             logging.info("Removing intermediate files")
             for f in mp3_segments:
-                os.remove(f)
+                pathlib.Path(f).unlink()
 
             logging.info("Removing original text file")
-            os.remove(incoming_filename)
-        else:
-            if len(content_text_cleaned) == 0:
-                logging.warning(
-                    f"Skipping {filename.name}: file is empty after cleaning."
-                )
-            elif len(content_text_cleaned) >= character_limit:
-                logging.warning(
-                    f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit."
-                )
-                gotify_server = os.environ.get("GOTIFY_SERVER")
-                gotify_token = os.environ.get("GOTIFY_TOKEN")
-                debug_message = "Skipping long text-to-speech content"
-                debug_output = f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit. Moving to holding directory."
+            pathlib.Path(incoming_filename).unlink()
+        elif len(content_text_cleaned) == 0:
+            logging.warning(
+                f"Skipping {filename.name}: file is empty after cleaning.",
+            )
+        elif len(content_text_cleaned) >= character_limit:
+            logging.warning(
+                f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit.",
+            )
+            gotify_server = os.environ.get("GOTIFY_SERVER")
+            gotify_token = os.environ.get("GOTIFY_TOKEN")
+            debug_message = "Skipping long text-to-speech content"
+            debug_output = f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit. Moving to holding directory."
 
-                gotify_url = f"{gotify_server}/message?token={gotify_token}"
-                data = {
-                    "title": debug_message,
-                    "message": debug_output,
-                    "priority": 6,
-                }
-                requests.post(gotify_url, data=data)
+            gotify_url = f"{gotify_server}/message?token={gotify_token}"
+            data = {
+                "title": debug_message,
+                "message": debug_output,
+                "priority": 6,
+            }
+            requests.post(gotify_url, data=data)
 
-                # Move the file to a separate directory so the processing isn't repeatedly tried
-                parent = os.path.dirname(os.path.abspath(input_dir))
-                target_dir = os.path.join(parent, "text-input-too-big")
-                os.makedirs(target_dir, exist_ok=True)
+            # Move the file to a separate directory so the processing isn't repeatedly tried
+            parent = pathlib.Path(pathlib.Path(input_dir).resolve()).parent
+            target_dir = os.path.join(parent, "text-input-too-big")
+            pathlib.Path(target_dir).mkdir(exist_ok=True, parents=True)
 
-                shutil.move(
-                    incoming_filename,
-                    os.path.join(target_dir, os.path.basename(incoming_filename)),
-                )
+            shutil.move(
+                incoming_filename,
+                os.path.join(target_dir, pathlib.Path(incoming_filename).name),
+            )
 
 
 if __name__ == "__main__":

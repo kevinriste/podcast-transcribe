@@ -1,5 +1,6 @@
 import logging
 import os
+import pathlib
 import re
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -7,8 +8,12 @@ import markdown
 import requests
 import yt_dlp
 from bs4 import BeautifulSoup
-from imap_tools import AND, MailBox, MailMessageFlags
-from mutagen.id3 import ID3, TIT2, TT3, WXXX, ID3NoHeaderError
+from imap_tools.consts import MailMessageFlags
+from imap_tools.mailbox import MailBox
+from imap_tools.query import AND
+from mutagen.id3 import ID3
+from mutagen.id3._frames import TIT2, TT3, WXXX
+from mutagen.id3._util import ID3NoHeaderError
 from openai import OpenAI
 from playwright.sync_api import sync_playwright
 from requests.adapters import HTTPAdapter
@@ -43,12 +48,10 @@ def markdown_to_plain_text(markdown_text):
 
     # Use BeautifulSoup to extract text
     soup = BeautifulSoup(html, features="html.parser")
-    plain_text = soup.get_text()
-
-    return plain_text
+    return soup.get_text()
 
 
-def send_gotify_notification(title, message, priority=6):
+def send_gotify_notification(title, message, priority=6) -> None:
     gotify_server = os.environ.get("GOTIFY_SERVER")
     gotify_token = os.environ.get("GOTIFY_TOKEN")
     if not gotify_server or not gotify_token:
@@ -90,8 +93,7 @@ def extract_links_from_email(msg):
             links.append({"href": anchor["href"], "text": text})
     if msg.text:
         logging.info("Parsing plain text to extract links")
-        for url in re.findall(r"https?://[^\s)<>\"']+", msg.text):
-            links.append({"href": url, "text": ""})
+        links.extend({"href": url, "text": ""} for url in re.findall(r"https?://[^\s)<>\"']+", msg.text))
     deduped = []
     seen = set()
     for link in links:
@@ -104,7 +106,7 @@ def extract_links_from_email(msg):
 
 def find_source_url(links, source_kind, subject):
     subject_norm = normalize_text(subject)
-    logging.info(f"Selecting source URL for {source_kind} email")
+    logging.info("Selecting source URL for %s email", source_kind)
     if source_kind == "beehiiv":
         for link in links:
             if normalize_text(link["text"]) == "read online":
@@ -165,11 +167,11 @@ def generate_summary(text, title):
         logging.info("Summary generated")
         return response.output_text.strip()
     except Exception as exc:
-        logging.error(f"Summary generation failed: {exc}")
+        logging.exception("Summary generation failed: %s", exc)
         return ""
 
 
-def apply_id3_tags(mp3_path, title, description, source_url):
+def apply_id3_tags(mp3_path, title, description, source_url) -> None:
     logging.info("Writing ID3 tags to MP3")
     try:
         tags = ID3(mp3_path)
@@ -185,20 +187,22 @@ def apply_id3_tags(mp3_path, title, description, source_url):
 
 
 def fetch_and_process_html(url, final_request=False, headers=None, request_body=None):
-    """
-    Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
+    """Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
 
-    Parameters:
+    Parameters
+    ----------
     - url: The URL to fetch the HTML content from.
     - final_request: Boolean indicating if this is the last attempt to fetch the article.
     - headers: Optional dictionary of headers to include in the request (GET or POST).
     - request_body: Optional dictionary of data for making a POST request instead of a GET.
 
-    Returns:
+    Returns
+    -------
     - content_text: The processed HTML content as text, or None if the check fails.
+
     """
     try:
-        logging.info(f"Fetching {url}")
+        logging.info("Fetching %s", url)
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -208,7 +212,8 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
             try:
                 if request_body:
                     logging.info(
-                        f"Making GET request to {url} with url query parameter"
+                        "Making GET request to %s with url query parameter",
+                        url,
                     )
                     page.goto(
                         f"{url}?url={request_body['url']}",
@@ -216,21 +221,22 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
                         timeout=180000,
                     )
                 else:
-                    logging.info(f"Making GET request to {url}")
+                    logging.info("Making GET request to %s", url)
                     page.goto(url, wait_until="networkidle", timeout=180000)
 
                 # Get rendered HTML content
                 html_content = page.content()
 
             except Exception as e:
-                logging.error(f"Error occurred while fetching {url}: {e}")
+                logging.exception("Error occurred while fetching %s: %s", url, e)
                 html_content = None
 
             finally:
                 browser.close()
 
         html_content_parsed_for_title = bare_extraction(
-            html_content, with_metadata=True
+            html_content,
+            with_metadata=True,
         )
         webpage_text = extract(html_content, include_comments=False, favor_recall=True)
         content_text = (
@@ -243,7 +249,7 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
         return html_content_parsed_for_title, content_text
 
     except Exception as e:
-        logging.error(f"Error occurred: {e}")
+        logging.exception("Error occurred: %s", e)
         return None, None
 
 
@@ -263,9 +269,9 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         subject_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", subject_raw)
         subject_for_filter_lower = subject_for_filename.lower()
         subject_line = f"{subject_raw}.\n" if subject_raw else ""
-        if subject_for_filter_lower != "link" and subject_for_filter_lower != "youtube":
+        if subject_for_filter_lower not in {"link", "youtube"}:
             output_filename = f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
-            logging.info(f"parsing email: {output_filename}")
+            logging.info("parsing email: %s", output_filename)
             email_text_raw = msg.text
             has_beehiiv = bool(msg.headers.get("x-beehiiv-ids"))
             source_kind = "beehiiv" if has_beehiiv else "substack"
@@ -290,13 +296,17 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 email_text_plain,
             )
             email_text_without_empty_brackets = re.sub(
-                r"\[\]", "", email_text_without_urls
+                r"\[\]",
+                "",
+                email_text_without_urls,
             )
             email_text_without_empty_parens = re.sub(
-                r"\(\)", "", email_text_without_empty_brackets
+                r"\(\)",
+                "",
+                email_text_without_empty_brackets,
             )
-            email_text_without_empty_angles = re.sub(
-                r"<>", "", email_text_without_empty_parens
+            email_text_without_empty_angles = email_text_without_empty_parens.replace(
+                r"<>", "",
             )
             if len(email_text_without_empty_angles) > 0:
                 newsletter_text_for_tts = (
@@ -312,7 +322,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             ):
                 move_to_podcast = False
             if move_to_podcast:
-                output_file = open(output_filename, "w")
+                output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
                 metadata_block = "\n".join(
                     [
                         f"META_FROM: {from_name_raw}",
@@ -320,7 +330,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                         f"META_SOURCE_URL: {source_url}",
                         f"META_SOURCE_KIND: {source_kind}",
                         f"META_SOURCE_NAME: {from_name_raw}",
-                    ]
+                    ],
                 )
                 logging.info("Writing metadata block to text input")
                 output_file.write(metadata_block + "\n\n" + newsletter_text_for_tts)
@@ -328,7 +338,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         elif subject_for_filter_lower == "youtube":
             email_text_raw = msg.text
             youtube_url = re.sub(r"[^\S]+", "", email_text_raw)
-            logging.info(f"fetching youtube audio: {youtube_url}")
+            logging.info("fetching youtube audio: %s", youtube_url)
             ydl_opts = {
                 "format": "bestaudio[protocol!=m3u8][protocol!=m3u8_native]/bestaudio/best",
                 "extractor_args": {"youtube": {"player_client": ["android"]}},
@@ -339,7 +349,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                         "key": "FFmpegExtractAudio",
                         "preferredcodec": "mp3",
                         "preferredquality": "192",
-                    }
+                    },
                 ],
                 "outtmpl": "../dropcaster-docker/audio/%(uploader)s- %(title)s.%(ext)s",
             }
@@ -353,14 +363,14 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 summary = generate_summary(video_description, video_title)
                 description_body = summary or "Summary unavailable."
                 description = f'{video_title}<br/><br/>{description_body}<br/><br/>Source: <a href="{video_url}">{video_url}</a>'
-                if os.path.exists(mp3_filename):
+                if pathlib.Path(mp3_filename).exists():
                     apply_id3_tags(mp3_filename, video_title, description, video_url)
                 else:
-                    logging.error(f"Expected MP3 not found: {mp3_filename}")
+                    logging.error("Expected MP3 not found: %s", mp3_filename)
         else:
             email_text_raw = msg.text
             url_text_compact = re.sub(r"[^\S]+", "", email_text_raw)
-            logging.info(f"fetching webpage: {url_text_compact}")
+            logging.info("fetching webpage: %s", url_text_compact)
             original_url = url_text_compact
             html_content_parsed_for_title, webpage_text = fetch_and_process_html(
                 url=local_scraper_url,
@@ -369,7 +379,8 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             )
             if webpage_text is None:
                 logging.info(
-                    f"could not parse webpage, saving for next time: {original_url}"
+                    "could not parse webpage, saving for next time: %s",
+                    original_url,
                 )
                 continue
             raw_title = (
@@ -378,14 +389,14 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
             )
             title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", raw_title)
             output_filename = f"{output_folder}/{date_stamp}-{title_for_filename}.txt"
-            output_file = open(output_filename, "w")
+            output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
             metadata_block = "\n".join(
                 [
                     f"META_FROM: {from_name_raw}",
                     f"META_TITLE: {raw_title}",
                     f"META_SOURCE_URL: {original_url}",
                     "META_SOURCE_KIND: url",
-                ]
+                ],
             )
             logging.info("Writing metadata block to text input")
             output_file.write(metadata_block + "\n\n" + webpage_text)

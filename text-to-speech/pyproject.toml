@@ -17,6 +17,8 @@ dependencies = [
 dev = [
     "basedpyright>=1.20.0",
     "ruff>=0.7.0",
+    "types-beautifulsoup4>=4.12.0",
+    "types-requests>=2.32.0",
 ]
 
 [tool.ruff]
