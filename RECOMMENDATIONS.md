@@ -27,6 +27,10 @@ Priority levels:
 - Consider splitting the monolithic cron flow into per-stage steps with isolated retries (IMAP, RSS, TTS, Dropcaster) to reduce “one failure blocks all” behavior.
 - Replace shell orchestration with a small Python runner (or Makefile + Python) to improve error handling and portability without changing behavior.
 - Parameterize hardcoded paths and service URLs via env vars to improve portability (paths, local scraper endpoints, log locations).
+- Consolidate text normalization into one shared step (URL removal, bracket cleanup, Beehiiv markdown cleanup) so cleanup isn’t duplicated across IMAP/RSS/TTS.
+- Separate the pipeline into extract → normalize → TTS/encode stages to make each step idempotent and easier to debug.
+- Prefer requests/trafilatura for non‑JS pages and only fall back to Playwright when extraction is low‑confidence.
+- Avoid LLM‑driven cleaning for core parsing; use LLMs only as optional polishing with strict caps and deterministic fallbacks.
 
 ## P3 Low
 
