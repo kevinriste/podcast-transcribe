@@ -3,18 +3,7 @@
 FIRST_LOG_DATE=$(TZ='America/Chicago' date +%FT%T.%3N%:z)
 RUN_LOG="/home/flog99/process-log-runs/${FIRST_LOG_DATE}.log"
 
-timestamp_output() {
-    while IFS= read -r line; do
-        if [ -z "${FIRST_LOG_DATE}" ]; then
-            echo "$(TZ='America/Chicago' date +%FT%T.%3N%:z) $line"
-        else
-            echo "$FIRST_LOG_DATE $line"
-            export FIRST_LOG_DATE=""
-        fi
-    done
-}
-
-RUN_LOG="$RUN_LOG" bash /home/flog99/dev/podcast-transcribe/process.sh $FIRST_LOG_DATE 2>&1 | timestamp_output
+RUN_LOG="$RUN_LOG" bash /home/flog99/dev/podcast-transcribe/process.sh $FIRST_LOG_DATE 2>&1
 exit_code=${PIPESTATUS[0]}
 if [ "$exit_code" -ne 0 ]; then
     debug_message="Podcast Transcribe error: process.sh exit code $exit_code"
