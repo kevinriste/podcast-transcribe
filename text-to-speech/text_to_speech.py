@@ -112,18 +112,28 @@ def split_metadata(raw_text):
     logging.info("Parsing metadata header")
     lines = raw_text.splitlines()
     metadata = {}
-    content_start = 0
+    current_key = None
+    content_start = len(lines)
     for idx, line in enumerate(lines):
         if line.startswith("META_"):
+            if ":" not in line:
+                content_start = idx
+                break
             key, value = line.split(":", 1)
-            metadata[key.replace("META_", "").lower()] = value.strip()
+            current_key = key.replace("META_", "").lower()
+            metadata[current_key] = value.strip()
+            continue
+        if line.startswith((" ", "\t")) and current_key:
+            metadata[current_key] = (
+                f"{metadata.get(current_key, '')} {line.strip()}".strip()
+            )
             continue
         if line.strip() == "":
             content_start = idx + 1
             break
         content_start = idx
         break
-    content = "\n".join(lines[content_start:]) if content_start > 0 else raw_text
+    content = "\n".join(lines[content_start:]) if content_start < len(lines) else ""
     return metadata, content
 
 

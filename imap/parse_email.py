@@ -67,6 +67,14 @@ def normalize_text(value):
     return " ".join(value.strip().lower().split())
 
 
+def unfold_header_value(value):
+    if not value:
+        return ""
+    unfolded = re.sub(r"\r?\n[ \t]+", " ", value)
+    unfolded = re.sub(r"[\r\n]+", " ", unfolded)
+    return unfolded.strip()
+
+
 def clean_substack_url(url):
     try:
         parsed = urlparse(url)
@@ -260,10 +268,10 @@ def fetch_and_process_html(url, final_request=False, headers=None, request_body=
 with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
     msgs = mailbox.fetch(AND(seen=False), mark_seen=False)
     for msg in msgs:
-        subject_raw = msg.subject.replace("Fwd: ", "")
+        subject_raw = unfold_header_value(msg.subject).replace("Fwd: ", "")
         date_stamp = msg.date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
-        from_name_raw = msg.from_values.name
-        from_email = msg.from_values.email
+        from_name_raw = unfold_header_value(msg.from_values.name)
+        from_email = msg.from_values.email or ""
         from_name_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", from_name_raw)
         from_prefix_for_filename = (
             from_name_for_filename + "- " if from_name_for_filename != "" else ""
