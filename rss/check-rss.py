@@ -13,7 +13,7 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 from dateutil import parser
-from openai import OpenAI
+from google import genai
 from playwright.sync_api import sync_playwright
 from pydantic import BaseModel
 from requests.adapters import HTTPAdapter
@@ -24,8 +24,8 @@ from waybackpy.exceptions import MaximumSaveRetriesExceeded, TooManyRequestsErro
 
 local_scraper_url = "http://localhost:3002/fetch"
 bill_simmons_feed = "https://feeds.megaphone.fm/the-bill-simmons-podcast"
-summary_model = "gpt-5-mini"
-_openai_client = None
+summary_model = "gemini-3.1-flash-lite-preview"
+_gemini_client = None
 
 # Create a Retry object with zero retries
 retry_strategy = Retry(
@@ -54,11 +54,11 @@ wayback_feeds = [
 feeds = [line.rstrip() for line in pathlib.Path(feedsFile).open(encoding="utf-8")]
 
 
-def get_openai_client():
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI()
-    return _openai_client
+def get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _gemini_client
 
 
 def send_gotify_notification(title, message, priority=6) -> None:
@@ -79,23 +79,18 @@ def is_nfl_related(title, description):
     class NflCheck(BaseModel):
         is_nfl: bool
 
-    prompt = "Determine if this podcast episode involves NFL football."
+    prompt = f"Determine if this podcast episode involves NFL football.\n\nTitle: {title}\n\nDescription:\n{description}"
     try:
-        client = get_openai_client()
-        response = client.responses.parse(
+        client = get_gemini_client()
+        response = client.models.generate_content(
             model=summary_model,
-            input=[
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": f"Title: {title}\n\nDescription:\n{description}",
-                },
-            ],
-            text_format=NflCheck,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": NflCheck,
+            },
         )
-        if response.output_parsed is not None:
-            return response.output_parsed.is_nfl
-        return False
+        return response.parsed.is_nfl
     except Exception as exc:
         logging.exception("NFL relevance check failed: %s", exc)
         return False

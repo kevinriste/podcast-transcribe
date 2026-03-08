@@ -13,7 +13,7 @@ from glob import glob
 import requests
 from google.cloud import texttospeech
 from mutagen.id3 import ID3, TIT2, TT3, WXXX, ID3NoHeaderError
-from openai import OpenAI
+from google import genai
 from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -22,8 +22,8 @@ input_dir = "text-input"
 temp_output_dir = "temp-output"
 final_output_dir = "../dropcaster-docker/audio"
 character_limit = 150000
-summary_model = "gpt-5-mini"
-_openai_client = None
+summary_model = "gemini-3.1-flash-lite-preview"
+_gemini_client = None
 
 
 # Using regular expressions to clean email text
@@ -137,27 +137,30 @@ def split_metadata(raw_text):
     return metadata, content
 
 
-def get_openai_client():
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI()
-    return _openai_client
+def get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _gemini_client
 
 
 def generate_summary(text, title):
     if not text.strip():
         logging.info("Summary skipped: empty content")
         return ""
-    logging.info("Generating summary via OpenAI")
+    logging.info("Generating summary via Gemini")
     prompt = (
         "Summarize the article in 2-3 sentences. Focus on key points and keep it concise.\n\n"
         f"Title: {title}\n\nArticle:\n{text}"
     )
     try:
-        client = get_openai_client()
-        response = client.responses.create(model=summary_model, input=prompt)
+        client = get_gemini_client()
+        response = client.models.generate_content(
+            model=summary_model,
+            contents=prompt,
+        )
         logging.info("Summary generated")
-        return response.output_text.strip()
+        return response.text.strip()
     except Exception as exc:
         logging.exception("Summary generation failed: %s", exc)
         return ""

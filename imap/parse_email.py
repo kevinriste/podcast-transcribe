@@ -14,7 +14,7 @@ from imap_tools.query import AND
 from mutagen.id3 import ID3
 from mutagen.id3._frames import TIT2, TT3, WXXX
 from mutagen.id3._util import ID3NoHeaderError
-from openai import OpenAI
+from google import genai
 from playwright.sync_api import sync_playwright
 from requests.adapters import HTTPAdapter
 from trafilatura import bare_extraction, extract
@@ -26,8 +26,8 @@ output_folder = "../text-to-speech/text-input"
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
 local_scraper_url = "http://localhost:3001/fetch"
-summary_model = "gpt-5-mini"
-_openai_client = None
+summary_model = "gemini-3.1-flash-lite-preview"
+_gemini_client = None
 
 # Create a Retry object with zero retries
 retry_strategy = Retry(
@@ -153,30 +153,30 @@ def find_source_url(links, source_kind, subject):
     return ""
 
 
-def get_openai_client():
-    global _openai_client
-    if _openai_client is None:
-        _openai_client = OpenAI()
-    return _openai_client
+def get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _gemini_client
 
 
 def generate_summary(text, title):
     if not text.strip():
         logging.info("Summary skipped: empty content")
         return ""
-    logging.info("Generating summary via OpenAI")
+    logging.info("Generating summary via Gemini")
     prompt = (
         "Summarize the article in 2-3 sentences. Focus on key points and keep it concise.\n\n"
         f"Title: {title}\n\nArticle:\n{text}"
     )
     try:
-        client = get_openai_client()
-        response = client.responses.create(
+        client = get_gemini_client()
+        response = client.models.generate_content(
             model=summary_model,
-            input=prompt,
+            contents=prompt,
         )
         logging.info("Summary generated")
-        return response.output_text.strip()
+        return response.text.strip()
     except Exception as exc:
         logging.exception("Summary generation failed: %s", exc)
         return ""
@@ -332,6 +332,9 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                 "Jessica Valenti" in from_name_for_filename
                 and "the week in" not in subject_for_filter_lower
             ):
+                move_to_podcast = False
+            if "JaeHa Kim" in from_name_for_filename and "bts" in subject_for_filter_lower:
+                logging.info("Skipping K-Culture email: BTS in subject")
                 move_to_podcast = False
             if move_to_podcast:
                 output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
