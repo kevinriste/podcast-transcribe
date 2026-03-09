@@ -37,8 +37,10 @@ def clean_text(text):
         "",
         text_without_dashes,
     )
+    # Unwrap legal-citation brackets e.g. [t]he -> the, [T]he -> The
+    text_without_legal_brackets = re.sub(r"\[([a-zA-Z])\]", r"\1", text_without_urls)
     # Remove empty square brackets []
-    text_without_empty_brackets = re.sub(r"\[\]", "", text_without_urls)
+    text_without_empty_brackets = re.sub(r"\[\]", "", text_without_legal_brackets)
     # Remove empty parentheses ()
     text_without_empty_parens = re.sub(r"\(\)", "", text_without_empty_brackets)
     # Remove empty angle brackets <>

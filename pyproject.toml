@@ -5,7 +5,7 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["ALL"]
 preview = true
-ignore = ["D", "CPY"]
+ignore = ["D", "CPY", "PLR0914"]
 
 [tool.basedpyright]
 typeCheckingMode = "all"
