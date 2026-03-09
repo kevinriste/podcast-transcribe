@@ -5,107 +5,22 @@ import operator
 import os
 import pathlib
 import re
-import shutil
 import uuid
 from datetime import datetime
 from glob import glob
 
-import requests
+from google import genai
 from google.cloud import texttospeech
 from mutagen.id3 import ID3, TIT2, TT3, WXXX, ID3NoHeaderError
-from google import genai
 from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-input_dir = "text-input"
+input_dir = "../prepare-text/text-input-cleaned"
 temp_output_dir = "temp-output"
 final_output_dir = "../dropcaster-docker/audio"
-character_limit = 150000
 summary_model = "gemini-3.1-flash-lite-preview"
 _gemini_client = None
-
-
-# Using regular expressions to clean email text
-def clean_text(text):
-    text_raw = "".join(text)
-    # Remove three or more consecutive dashes
-    text_without_dashes = re.sub(r"---+", "", text_raw)
-    # Remove URLs from the email text
-    text_without_urls = re.sub(
-        r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
-        "",
-        text_without_dashes,
-    )
-    # Unwrap legal-citation brackets e.g. [t]he -> the, [T]he -> The
-    text_without_legal_brackets = re.sub(r"\[([a-zA-Z])\]", r"\1", text_without_urls)
-    # Remove empty square brackets []
-    text_without_empty_brackets = re.sub(r"\[\]", "", text_without_legal_brackets)
-    # Remove empty parentheses ()
-    text_without_empty_parens = re.sub(r"\(\)", "", text_without_empty_brackets)
-    # Remove empty angle brackets <>
-    text_without_empty_angles = text_without_empty_parens.replace(r"<>", "")
-    # get rid of superfluous non-newline whitespace
-    text_without_extra_whitespace = re.sub(
-        r"[^\S\r\n]+",
-        " ",
-        text_without_empty_angles,
-    )
-    # get rid of unsubscribe text
-    text_without_unsubscribe = re.sub(
-        r"(\r\n|\r|\n){2}Unsubscribe",
-        "",
-        text_without_extra_whitespace,
-    )
-    # get rid of intro 'view this post on the web' text
-    text_without_view_online = re.sub(
-        r"View this post on the web at (\r\n|\r|\n){2}",
-        "",
-        text_without_unsubscribe,
-    )
-    # remove Substack "substacks referenced above" block and trailing @ lines
-    text_without_substack_refs = re.sub(
-        r"(?im)^\s*substacks referenced above:.*\r?\n(?:\s*@\s*\r?\n)*",
-        "",
-        text_without_view_online,
-    )
-    # remove any leftover standalone @ lines
-    text_without_at_lines = re.sub(
-        r"(?m)^\s*@\s*$\r?\n?",
-        "",
-        text_without_substack_refs,
-    )
-    # get rid of plain text disclaimer on beehiiv emails
-    text_without_plain_text_disclaimer = re.sub(
-        r"You are reading a plain text version of this post. For the best experience, copy and paste this link in your browser to view the post online:",
-        "",
-        text_without_at_lines,
-    )
-    # get rid of social links at top of Money Illusion posts
-    text_without_social_links = re.sub(
-        r"Facebook *(\r\n|\r|\n)Twitter *(\r\n|\r|\n)LinkedIn *(\r\n|\r|\n)",
-        "",
-        text_without_plain_text_disclaimer,
-    )
-    # get rid of weird image data/captions in beehiiv emails
-    text_without_image_captions = re.sub(
-        r"View image: \(.*?\)(\r\n|\r|\n)?\s*Caption: .*?\s*.*(\r\n|\r|\n)?",
-        "",
-        text_without_social_links,
-    )
-    # fix pronunciation of Keynesian
-    text_with_pronunciation_fix = re.sub(
-        r"Keynesian",
-        "Cainzeean",
-        text_without_image_captions,
-        flags=re.IGNORECASE,
-    )
-    # add punctuation to end of lines without it so that narration pauses briefly
-    return re.sub(
-        r"(\w)\s*(\r\n|\r|\n)",
-        r"\1.\2",
-        text_with_pronunciation_fix,
-    )
 
 
 def split_metadata(raw_text):
@@ -130,7 +45,7 @@ def split_metadata(raw_text):
                 f"{metadata.get(current_key, '')} {line.strip()}".strip()
             )
             continue
-        if line.strip() == "":
+        if not line.strip():
             content_start = idx + 1
             break
         content_start = idx
@@ -168,10 +83,21 @@ def generate_summary(text, title):
         return ""
 
 
-def build_description(summary, title, source_url, source_kind, source_name=""):
+INTAKE_TYPE_LABELS = {
+    "email": "Email",
+    "rss": "RSS",
+    "link": "Link",
+    "youtube": "YouTube",
+}
+
+
+def build_description(summary, title, source_url, source_kind, source_name="", intake_type=""):
     description_body = summary or "Summary unavailable."
     title_line = title or "Untitled"
     parts = [description_body, f"Title: {title_line}"]
+    if intake_type:
+        intake_label = INTAKE_TYPE_LABELS.get(intake_type, intake_type)
+        parts.append(f"Via: {intake_label}")
     if source_url:
         display_text = source_url
         if source_kind == "beehiiv" and source_name:
@@ -218,8 +144,7 @@ def text_to_speech(incoming_filename) -> None:
         name = pathlib.Path(filename.name).name.replace(".txt", "")
         data = filename.read()
         input_text_raw = data.decode("utf8")
-        metadata, content_text_raw = split_metadata(input_text_raw)
-        content_text_cleaned = clean_text(content_text_raw)
+        metadata, content_text = split_metadata(input_text_raw)
         # initialize the API client
         client = texttospeech.TextToSpeechClient()
         mp3files = []
@@ -229,31 +154,30 @@ def text_to_speech(incoming_filename) -> None:
         compiled_regex_for_first_whitespace = re.compile(r"(\r\n|\r|\n|\.)+\s+")
         next_text_starter_position = 0
         counter = 0
-        max_steps = math.floor(1 + len(content_text_cleaned) / min_step_size)
-        if (
-            len(content_text_cleaned) < character_limit
-            and len(content_text_cleaned) > 0
-        ):
+        max_steps = math.floor(1 + len(content_text) / min_step_size)
+        if len(content_text) > 0:
             meta_from = metadata.get("from", "").strip()
             meta_title = metadata.get("title", "").strip()
             meta_source_url = metadata.get("source_url", "").strip()
             meta_source_kind = metadata.get("source_kind", "").strip()
             meta_source_name = metadata.get("source_name", "").strip()
+            meta_intake_type = metadata.get("intake_type", "").strip()
             if meta_title or meta_source_url:
                 logging.info("Using metadata for summary and description")
-            summary = generate_summary(content_text_cleaned, meta_title)
+            summary = generate_summary(content_text, meta_title)
             description = build_description(
                 summary,
                 meta_title,
                 meta_source_url,
                 meta_source_kind,
                 meta_source_name,
+                meta_intake_type,
             )
-            while next_text_starter_position < len(content_text_cleaned):
+            while next_text_starter_position < len(content_text):
                 counter += 1
                 first_whitespace_after_min_step_size_search = (
                     compiled_regex_for_first_whitespace.search(
-                        content_text_cleaned,
+                        content_text,
                         next_text_starter_position + min_step_size,
                         next_text_starter_position + max_step_size,
                     )
@@ -266,11 +190,11 @@ def text_to_speech(incoming_filename) -> None:
                     first_whitespace_after_min_step_size = (
                         next_text_starter_position + max_step_size
                     )
-                    if first_whitespace_after_min_step_size < len(content_text_cleaned):
+                    if first_whitespace_after_min_step_size < len(content_text):
                         logging.info(
                             f"max_step_size met before end of email {filename.name}",
                         )
-                text_to_process = content_text_cleaned[
+                text_to_process = content_text[
                     next_text_starter_position:first_whitespace_after_min_step_size
                 ]
                 next_text_starter_position = first_whitespace_after_min_step_size
@@ -342,66 +266,9 @@ def text_to_speech(incoming_filename) -> None:
 
             logging.info("Removing original text file")
             pathlib.Path(incoming_filename).unlink()
-        elif len(content_text_cleaned) == 0:
+        else:
             logging.warning(
-                f"Skipping {filename.name}: file is empty after cleaning.",
-            )
-            gotify_server = os.environ.get("GOTIFY_SERVER")
-            gotify_token = os.environ.get("GOTIFY_TOKEN")
-            if gotify_server and gotify_token:
-                debug_message = "Skipping empty text-to-speech content"
-                debug_output = (
-                    f"Skipping {filename.name}: file is empty after cleaning. "
-                    "Moving to holding directory."
-                )
-                gotify_url = f"{gotify_server}/message?token={gotify_token}"
-                data = {
-                    "title": debug_message,
-                    "message": debug_output,
-                    "priority": 6,
-                }
-                requests.post(gotify_url, data=data)
-            else:
-                logging.warning("Gotify env vars not set; skipping notification.")
-
-            # Move the file to a separate directory so the processing isn't repeatedly tried
-            parent = pathlib.Path(pathlib.Path(input_dir).resolve()).parent
-            target_dir = os.path.join(parent, "text-input-empty-after-cleaning")
-            pathlib.Path(target_dir).mkdir(exist_ok=True, parents=True)
-
-            shutil.move(
-                incoming_filename,
-                os.path.join(target_dir, pathlib.Path(incoming_filename).name),
-            )
-            logging.info(
-                "Moved empty-after-cleaning file to %s",
-                target_dir,
-            )
-        elif len(content_text_cleaned) >= character_limit:
-            logging.warning(
-                f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit.",
-            )
-            gotify_server = os.environ.get("GOTIFY_SERVER")
-            gotify_token = os.environ.get("GOTIFY_TOKEN")
-            debug_message = "Skipping long text-to-speech content"
-            debug_output = f"Skipping {filename.name}: text length {len(content_text_cleaned)} exceeds {character_limit} character limit. Moving to holding directory."
-
-            gotify_url = f"{gotify_server}/message?token={gotify_token}"
-            data = {
-                "title": debug_message,
-                "message": debug_output,
-                "priority": 6,
-            }
-            requests.post(gotify_url, data=data)
-
-            # Move the file to a separate directory so the processing isn't repeatedly tried
-            parent = pathlib.Path(pathlib.Path(input_dir).resolve()).parent
-            target_dir = os.path.join(parent, "text-input-too-big")
-            pathlib.Path(target_dir).mkdir(exist_ok=True, parents=True)
-
-            shutil.move(
-                incoming_filename,
-                os.path.join(target_dir, pathlib.Path(incoming_filename).name),
+                f"Skipping {filename.name}: file has no content.",
             )
 
 

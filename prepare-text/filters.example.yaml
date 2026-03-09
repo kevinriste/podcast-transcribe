@@ -1,0 +1,146 @@
+# filters.example.yaml — Example configuration for prepare_text.py
+# Copy to filters.yaml and customize. filters.yaml is gitignored.
+#
+# Schema notes:
+# - All match conditions are AND'd and case-insensitive
+# - Valid match fields: from, title, source_url, source_kind, source_name, intake_type
+# - Match operators: {contains: "..."} or {not_contains: "..."}
+# - Filter actions: "skip" (default, stops rule evaluation) or "notify" (continues)
+# - A skip rule before other rules with overlapping match criteria is an error
+# - Valid flags for patterns: ignorecase, multiline, dotall (or a list of them)
+
+# ---------------------------------------------------------------------------
+# Filters — decide which files to skip or notify about
+# ---------------------------------------------------------------------------
+filters:
+  # NFL notification runs first (action: notify continues to next rule)
+  - match:
+      source_url: {contains: "bill-simmons"}
+    llm_check: "Is this podcast episode primarily about NFL football?"
+    action: notify
+    notify:
+      priority: 9
+      title: "Bill Simmons NFL episode detected"
+    reason: "Bill Simmons: NFL episode detected"
+
+  # Then skip all Bill Simmons (podcast feed, no article text)
+  - match:
+      source_url: {contains: "bill-simmons"}
+    action: skip
+    reason: "Bill Simmons: podcast feed, no article text"
+
+  - match:
+      from: {contains: "Jessica Valenti"}
+      title: {not_contains: "the week in"}
+    action: skip
+    reason: "Jessica Valenti: only weekly roundup"
+
+  - match:
+      from: {contains: "JaeHa Kim"}
+      title: {contains: "bts"}
+    action: skip
+    reason: "K-Culture: skip BTS episodes"
+
+# ---------------------------------------------------------------------------
+# General cleaning — all default to true; only list overrides here
+# ---------------------------------------------------------------------------
+# Available keys (all default true):
+#   url_removal, triple_dash_removal, legal_bracket_unwrap,
+#   empty_bracket_removal, whitespace_collapse, unsubscribe_removal,
+#   view_online_removal, substack_refs_removal, standalone_at_removal,
+#   beehiiv_plaintext_conversion, beehiiv_emphasis_removal,
+#   end_of_line_punctuation
+#
+# general_cleaning:
+#   url_removal: false              # globally disable URL removal
+#   overrides:
+#     - match:
+#         from: {contains: "some source"}
+#       url_removal: false           # disable URL removal for this source only
+
+# ---------------------------------------------------------------------------
+# Text removals — regex patterns to strip from content
+# ---------------------------------------------------------------------------
+text_removals:
+  - pattern: "^Advertisement$"
+    flags: multiline
+    reason: "NYT advertisement lines"
+
+  - pattern: "^Supported by$"
+    flags: multiline
+    reason: "NYT supported by line"
+
+  - pattern: "^Opinion \\| .+$"
+    flags: multiline
+    reason: "NYT Opinion title prefix"
+
+  - pattern: "The Times is committed to publishing a diversity of letters.*?letters@nytimes\\.com\\."
+    flags: dotall
+    reason: "NYT letters to editor block"
+
+  - pattern: "Follow the New York Times Opinion section on.*?Threads\\."
+    reason: "NYT social media footer"
+
+  - pattern: "Ross Douthat has been an Opinion columnist.*?Facebook$"
+    flags: [multiline, dotall]
+    reason: "NYT Ross Douthat bio"
+
+  - pattern: "Ezra Klein joined Opinion.*?Threads\\.$"
+    flags: [multiline, dotall]
+    reason: "NYT Ezra Klein bio"
+
+  - pattern: "^Related Content$"
+    flags: multiline
+    reason: "NYT related content line"
+
+  - pattern: ".+ is a reader-supported publication\\. To .+, consider becoming a .+\\."
+    reason: "Substack reader-supported nag"
+
+  - pattern: "This post is public so feel free to share it\\."
+    reason: "Substack share prompt"
+
+  - pattern: "(?:^|\\n)Substacks referenced above:.*?(?=\\n[^@\\s]|\\Z)"
+    flags: [dotall, ignorecase]
+    reason: "Substack substacks referenced above block"
+
+  - pattern: "(?m)^\\s*@\\s*$\\r?\\n?"
+    reason: "Standalone @ lines"
+
+  - pattern: "View this post on the web at\\s*(?:\\r\\n|\\r|\\n){1,2}"
+    reason: "Substack view online prompt"
+
+  - pattern: "You are reading a plain text version of this post\\. For the best experience, copy and paste this link in your browser to view the post online:"
+    reason: "Beehiiv plain-text disclaimer"
+
+  - pattern: "Any typos in this email are on purpose actually"
+    reason: "Garbage Day typos disclaimer"
+
+  - pattern: "^TikTok Video:\\s*$"
+    flags: multiline
+    reason: "Garbage Day TikTok embed placeholder"
+
+  - pattern: "^Instagram:\\s*$"
+    flags: multiline
+    reason: "Garbage Day Instagram embed placeholder"
+
+  - pattern: "\\u00a9\\s*\\d{4}\\s*JAE-HA KIM.*?All Rights Reserved"
+    flags: ignorecase
+    reason: "K-Culture copyright line"
+
+  - pattern: "[\\u1d00-\\u1d7f][\\u1d00-\\u1d7f\\s]{5,}"
+    reason: "Unicode small-caps promotional text"
+
+  - pattern: "View image: \\(.*?\\)(?:\\r\\n|\\r|\\n)?\\s*Caption: .*?\\s*.*(?:\\r\\n|\\r|\\n)?"
+    reason: "Beehiiv image captions"
+
+  - pattern: "Facebook *(?:\\r\\n|\\r|\\n)Twitter *(?:\\r\\n|\\r|\\n)LinkedIn *(?:\\r\\n|\\r|\\n)"
+    reason: "Money Illusion social links"
+
+# ---------------------------------------------------------------------------
+# Text replacements — regex find/replace for pronunciation fixes etc.
+# ---------------------------------------------------------------------------
+text_replacements:
+  - pattern: "Keynesian"
+    replacement: "Cainzeean"
+    flags: ignorecase
+    reason: "Keynesian pronunciation fix"
