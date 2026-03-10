@@ -15,3 +15,5 @@
 /other-sites/*
 /rss/diagnosis/
 /lint-reports/
+/prepare-text/filters.yaml
+/prepare-text/stats/

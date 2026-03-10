@@ -1,0 +1,110 @@
+# filters.example.yaml — Example configuration for prepare_text.py
+# Copy to filters.yaml and customize. filters.yaml is gitignored.
+#
+# Schema notes:
+# - All match conditions are AND'd and case-insensitive
+# - Valid match fields: from, title, source_url, source_kind, source_name, intake_type
+# - Match operators: {contains: "..."} or {not_contains: "..."}
+# - Filter actions: "skip" (default, stops rule evaluation) or "notify" (continues)
+# - A skip rule before other rules with overlapping match criteria is an error
+# - Valid flags for patterns: ignorecase, multiline, dotall (or a list of them)
+
+# ---------------------------------------------------------------------------
+# Filters — decide which files to skip or notify about
+# ---------------------------------------------------------------------------
+filters:
+  # Notify first, then skip — notify runs before skip for the same match.
+  # Use action: notify to send a Gotify alert without stopping processing.
+  - match:
+      source_url: {contains: "example-podcast-feed"}
+    llm_check: "Does this episode discuss topic X?"
+    action: notify
+    notify:
+      priority: 9
+      title: "Topic X episode detected"
+    reason: "Example Podcast: topic X detected"
+
+  # Skip all from this feed (e.g. podcast feed with no article text)
+  - match:
+      source_url: {contains: "example-podcast-feed"}
+    action: skip
+    reason: "Example Podcast: no article text"
+
+  # Skip unless title contains a specific phrase
+  - match:
+      from: {contains: "Example Author"}
+      title: {not_contains: "weekly roundup"}
+    action: skip
+    reason: "Example Author: only weekly roundup editions"
+
+  # Skip when title contains a keyword
+  - match:
+      from: {contains: "Example Newsletter"}
+      title: {contains: "off-topic"}
+    action: skip
+    reason: "Example Newsletter: skip off-topic episodes"
+
+# ---------------------------------------------------------------------------
+# General cleaning — all default to true; only list overrides here
+# ---------------------------------------------------------------------------
+# Available keys (all default true):
+#   url_removal, triple_dash_removal, legal_bracket_unwrap,
+#   empty_bracket_removal, whitespace_collapse, unsubscribe_removal,
+#   view_online_removal, substack_refs_removal, standalone_at_removal,
+#   beehiiv_plaintext_conversion, beehiiv_emphasis_removal,
+#   end_of_line_punctuation
+#
+# general_cleaning:
+#   url_removal: false              # globally disable URL removal
+#   overrides:
+#     - match:
+#         from: {contains: "some source"}
+#       url_removal: false           # disable URL removal for this source only
+
+# ---------------------------------------------------------------------------
+# Text removals — regex patterns to strip from content
+# ---------------------------------------------------------------------------
+text_removals:
+  # Remove a standalone line (e.g. "Advertisement" mid-article)
+  - pattern: "^Advertisement$"
+    flags: multiline
+    reason: "Remove standalone advertisement markers"
+
+  # Remove a multi-line block matched with dotall
+  - pattern: "Please subscribe to support our work.*?Thank you\\."
+    flags: dotall
+    reason: "Remove subscription nag block"
+
+  # Remove a social media footer
+  - pattern: "Follow us on.*?Threads\\."
+    reason: "Remove social media footer"
+
+  # Remove an author bio that repeats on every article
+  - pattern: "Jane Doe is a columnist for.*?$"
+    flags: [multiline, dotall]
+    reason: "Remove recurring author bio"
+
+  # Remove a reader-supported publication nag (generic Substack pattern)
+  - pattern: ".+ is a reader-supported publication\\. To .+, consider becoming a .+\\."
+    reason: "Remove reader-supported nag"
+
+  # Remove platform-specific boilerplate
+  - pattern: "You are reading a plain text version of this post\\. For the best experience, copy and paste this link in your browser to view the post online:"
+    reason: "Remove plain-text email disclaimer"
+
+  # Remove unicode small-caps promotional text (common in some newsletters)
+  - pattern: "[\\u1d00-\\u1d7f][\\u1d00-\\u1d7f\\s]{5,}"
+    reason: "Remove unicode small-caps promotional text"
+
+  # Remove social links header (e.g. "Facebook\nTwitter\nLinkedIn\n")
+  - pattern: "Facebook *(?:\\r\\n|\\r|\\n)Twitter *(?:\\r\\n|\\r|\\n)LinkedIn *(?:\\r\\n|\\r|\\n)"
+    reason: "Remove social links header"
+
+# ---------------------------------------------------------------------------
+# Text replacements — regex find/replace for pronunciation fixes etc.
+# ---------------------------------------------------------------------------
+text_replacements:
+  - pattern: "Worchestershire"
+    replacement: "Woostershire"
+    flags: ignorecase
+    reason: "Pronunciation fix"

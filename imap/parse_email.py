@@ -4,7 +4,6 @@ import pathlib
 import re
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-import markdown
 import requests
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -22,7 +21,7 @@ from urllib3.util.retry import Retry
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-output_folder = "../text-to-speech/text-input"
+output_folder = "../prepare-text/text-input-raw"
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
 local_scraper_url = "http://localhost:3001/fetch"
@@ -40,15 +39,6 @@ retry_strategy = Retry(
 
 # Create an HTTPAdapter with your retry strategy
 adapter = HTTPAdapter(max_retries=retry_strategy)
-
-
-def markdown_to_plain_text(markdown_text):
-    # Convert Markdown to HTML
-    html = markdown.markdown(markdown_text)
-
-    # Use BeautifulSoup to extract text
-    soup = BeautifulSoup(html, features="html.parser")
-    return soup.get_text()
 
 
 def send_gotify_notification(title, message, priority=6) -> None:
@@ -276,10 +266,8 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         from_prefix_for_filename = (
             from_name_for_filename + "- " if from_name_for_filename != "" else ""
         )
-        from_line = f"{from_name_raw}.\n" if from_name_raw else ""
         subject_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", subject_raw)
         subject_for_filter_lower = subject_for_filename.lower()
-        subject_line = f"{subject_raw}.\n" if subject_raw else ""
         if subject_for_filter_lower not in {"link", "youtube"}:
             output_filename = f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
             logging.info("parsing email: %s", output_filename)
@@ -294,62 +282,20 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                     "Unknown email source",
                     f"No source link found for {from_email} ({subject_raw}).",
                 )
-            if source_kind == "beehiiv":
-                email_text_plain = markdown_to_plain_text(email_text_raw)
-                # Beehiiv sometimes leaves Markdown emphasis markers in plain text.
-                email_text_plain = re.sub(r"__([^_]+)__", r"\1", email_text_plain)
-                email_text_plain = re.sub(r"_([^_]+)_", r"\1", email_text_plain)
-            else:
-                email_text_plain = email_text_raw
-            email_text_without_urls = re.sub(
-                r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
-                "",
-                email_text_plain,
+            output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
+            metadata_block = "\n".join(
+                [
+                    f"META_FROM: {from_name_raw}",
+                    f"META_TITLE: {subject_raw}",
+                    f"META_SOURCE_URL: {source_url}",
+                    f"META_SOURCE_KIND: {source_kind}",
+                    f"META_SOURCE_NAME: {from_name_raw}",
+                    "META_INTAKE_TYPE: email",
+                ],
             )
-            email_text_without_empty_brackets = re.sub(
-                r"\[\]",
-                "",
-                email_text_without_urls,
-            )
-            email_text_without_empty_parens = re.sub(
-                r"\(\)",
-                "",
-                email_text_without_empty_brackets,
-            )
-            email_text_without_empty_angles = email_text_without_empty_parens.replace(
-                r"<>",
-                "",
-            )
-            if len(email_text_without_empty_angles) > 0:
-                newsletter_text_for_tts = (
-                    from_line + subject_line + "\n" + email_text_without_empty_angles
-                )
-            else:
-                newsletter_text_for_tts = email_text_without_empty_angles
-
-            move_to_podcast = True
-            if (
-                "Jessica Valenti" in from_name_for_filename
-                and "the week in" not in subject_for_filter_lower
-            ):
-                move_to_podcast = False
-            if "JaeHa Kim" in from_name_for_filename and "bts" in subject_for_filter_lower:
-                logging.info("Skipping K-Culture email: BTS in subject")
-                move_to_podcast = False
-            if move_to_podcast:
-                output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
-                metadata_block = "\n".join(
-                    [
-                        f"META_FROM: {from_name_raw}",
-                        f"META_TITLE: {subject_raw}",
-                        f"META_SOURCE_URL: {source_url}",
-                        f"META_SOURCE_KIND: {source_kind}",
-                        f"META_SOURCE_NAME: {from_name_raw}",
-                    ],
-                )
-                logging.info("Writing metadata block to text input")
-                output_file.write(metadata_block + "\n\n" + newsletter_text_for_tts)
-                output_file.close()
+            logging.info("Writing raw metadata and text to text input")
+            output_file.write(metadata_block + "\n\n" + email_text_raw)
+            output_file.close()
         elif subject_for_filter_lower == "youtube":
             email_text_raw = msg.text
             youtube_url = re.sub(r"[^\S]+", "", email_text_raw)
@@ -411,6 +357,7 @@ with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
                     f"META_TITLE: {raw_title}",
                     f"META_SOURCE_URL: {original_url}",
                     "META_SOURCE_KIND: url",
+                    "META_INTAKE_TYPE: link",
                 ],
             )
             logging.info("Writing metadata block to text input")

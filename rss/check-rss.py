@@ -13,9 +13,7 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 from dateutil import parser
-from google import genai
 from playwright.sync_api import sync_playwright
-from pydantic import BaseModel
 from requests.adapters import HTTPAdapter
 from trafilatura import bare_extraction, extract
 from urllib3.util.retry import Retry
@@ -24,9 +22,6 @@ from waybackpy.exceptions import MaximumSaveRetriesExceeded, TooManyRequestsErro
 
 local_scraper_url = "http://localhost:3002/fetch"
 bill_simmons_feed = "https://feeds.megaphone.fm/the-bill-simmons-podcast"
-summary_model = "gemini-3.1-flash-lite-preview"
-_gemini_client = None
-
 # Create a Retry object with zero retries
 retry_strategy = Retry(
     total=0,  # Total number of retries to allow
@@ -43,7 +38,7 @@ enable_diagnosis = False
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-output_folder = "../text-to-speech/text-input"
+output_folder = "../prepare-text/text-input-raw"
 feedsFile = "feeds.txt"
 wayback_feeds = [
     "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ross-douthat/rss.xml",
@@ -52,13 +47,6 @@ wayback_feeds = [
 ]
 
 feeds = [line.rstrip() for line in pathlib.Path(feedsFile).open(encoding="utf-8")]
-
-
-def get_gemini_client():
-    global _gemini_client
-    if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-    return _gemini_client
 
 
 def send_gotify_notification(title, message, priority=6) -> None:
@@ -70,30 +58,6 @@ def send_gotify_notification(title, message, priority=6) -> None:
     gotify_url = f"{gotify_server}/message?token={gotify_token}"
     data = {"title": title, "message": message, "priority": priority}
     requests.post(gotify_url, data=data)
-
-
-def is_nfl_related(title, description):
-    if not title and not description:
-        return False
-
-    class NflCheck(BaseModel):
-        is_nfl: bool
-
-    prompt = f"Determine if this podcast episode involves NFL football.\n\nTitle: {title}\n\nDescription:\n{description}"
-    try:
-        client = get_gemini_client()
-        response = client.models.generate_content(
-            model=summary_model,
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": NflCheck,
-            },
-        )
-        return response.parsed.is_nfl
-    except Exception as exc:
-        logging.exception("NFL relevance check failed: %s", exc)
-        return False
 
 
 def get_entry_link(entry):
@@ -280,7 +244,6 @@ for feed in feeds:
             output_filename = f"{output_folder}/{date_stamp}-{feed_prefix_for_filename}{entry_title_for_filename}.txt"
             meta_title = entry_title_raw
             original_url = get_entry_link(parsed_feed_entry)
-            write_output = True
 
             if feed == bill_simmons_feed:
                 entry_description_raw = (
@@ -288,19 +251,7 @@ for feed in feeds:
                     or parsed_feed_entry.get("description")
                     or ""
                 )
-                entry_description = str(entry_description_raw)
-                if is_nfl_related(entry_title_raw, entry_description):
-                    notify_title = (
-                        f"New Bill Simmons podcast to whitelist: {entry_title_raw}"
-                    )
-                    notify_description = f"https://podly.klt.pw\n\n{entry_description}"
-                    send_gotify_notification(
-                        notify_title,
-                        notify_description,
-                        priority=9,
-                    )
-                content_text = ""
-                write_output = False
+                content_text = str(entry_description_raw)
             elif feed in wayback_feeds:
                 try:
                     send_error_with_gotify = False
@@ -460,28 +411,20 @@ for feed in feeds:
                     break
             else:
                 soup = BeautifulSoup(parsed_feed_entry.content[0].value, "html.parser")
-                content_text_raw = soup.get_text()
-                content_text_with_prefix = (
-                    (feed_title_raw + ".\n" if feed_title_raw else "")
-                    + entry_title_raw
-                    + ".\n"
-                    + "\n"
-                    + content_text_raw
-                )
-                content_text = content_text_with_prefix
-            if write_output:
-                output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
-                metadata_block = "\n".join(
-                    [
-                        f"META_FROM: {feed_title_raw}",
-                        f"META_TITLE: {meta_title}",
-                        f"META_SOURCE_URL: {original_url}",
-                        "META_SOURCE_KIND: rss",
-                    ],
-                )
-                logging.info("Writing metadata block to text input")
-                output_file.write(metadata_block + "\n\n" + content_text)
-                output_file.close()
+                content_text = soup.get_text()
+            output_file = pathlib.Path(output_filename).open("w", encoding="utf-8")
+            metadata_block = "\n".join(
+                [
+                    f"META_FROM: {feed_title_raw}",
+                    f"META_TITLE: {meta_title}",
+                    f"META_SOURCE_URL: {original_url}",
+                    "META_SOURCE_KIND: rss",
+                    "META_INTAKE_TYPE: rss",
+                ],
+            )
+            logging.info("Writing raw metadata and text to text input")
+            output_file.write(metadata_block + "\n\n" + content_text)
+            output_file.close()
             guidDirExists = pathlib.Path(guid_dir).exists()
             if not guidDirExists:
                 pathlib.Path(guid_dir).mkdir(parents=True)

@@ -34,17 +34,14 @@ echo "Main--Ensure Playwright is up to date"
 /home/flog99/.local/bin/uv run playwright install
 echo "Main--Run Parse RSS script"
 /home/flog99/.local/bin/uv run python3 check-rss.py
-cd ..
+cd /home/flog99/dev/podcast-transcribe/prepare-text
+echo "Main--Install Prepare Text dependencies"
+/home/flog99/.local/bin/uv sync
+echo "Main--Run Prepare Text script"
+/home/flog99/.local/bin/uv run python3 prepare_text.py
+cd /home/flog99/dev/podcast-transcribe
 export GOOGLE_APPLICATION_CREDENTIALS=/home/flog99/dev/podcast-transcribe/EmailPodcast-c69d63681230.json
-echo "Main--Archive a copy of input text files"
-mkdir -p text-to-speech/input-text-archive
-if compgen -G "text-to-speech/text-input/*.txt" > /dev/null; then
-    cp --update=none text-to-speech/text-input/*.txt text-to-speech/input-text-archive/
-fi
 cd text-to-speech
-echo "Main--Remove empty text files"
-mkdir -p ./text-input-empty-files
-find ./text-input -size 0 -exec  mv {}  ./text-input-empty-files/ \;
 echo "Main--Install Google Text to Speech dependencies"
 /home/flog99/.local/bin/uv sync
 echo "Main--Run Google Text to Speech script"
