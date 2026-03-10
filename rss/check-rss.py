@@ -54,7 +54,7 @@ EXPECTED_TIMESTAMP_LENGTH: Final = 9
 
 def load_feeds() -> tuple[str, ...]:
     with pathlib.Path(feeds_file).open(encoding="utf-8") as feeds_fh:
-        return tuple(line.rstrip() for line in feeds_fh if line.rstrip())
+        return tuple(stripped for line in feeds_fh if (stripped := line.rstrip()))
 
 
 def send_gotify_notification(title: str, message: str, priority: int = 6) -> None:
@@ -68,7 +68,7 @@ def send_gotify_notification(title: str, message: str, priority: int = 6) -> Non
     data: Final[dict[str, str | int]] = {"title": title, "message": message, "priority": priority}
     try:
         _ = requests.post(gotify_url, data=data, timeout=30)
-    except Exception:
+    except requests.RequestException:
         logging.exception("Failed to send Gotify notification")
 
 
@@ -448,6 +448,11 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                         # If we failed to get the real article, stop processing this feed
                         # altogether so the article doesn't get skipped next time.
                         if content_text is None:
+                            send_gotify_notification(
+                                "Incomplete NYT article — all fallbacks failed",
+                                f"URL: {original_url}",
+                                priority=2,
+                            )
                             break
                     except (
                         requests.HTTPError,
@@ -478,6 +483,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                     )
                     content_text = soup.get_text()
                 if content_text is None:
+                    logging.warning("No content extracted for %s — skipping without updating GUID", original_url)
                     continue
                 metadata_block = build_metadata_block(feed_title_raw, meta_title, original_url)
                 logging.info("Writing raw metadata and text to text input")

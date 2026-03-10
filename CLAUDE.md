@@ -72,7 +72,7 @@ Root `pyproject.toml` defines shared ruff + basedpyright config. Subproject `pyp
 ## Key conventions
 
 - **Metadata headers**: All text input files start with `META_` prefixed lines, blank line, then content. Both imap and rss writers produce these; TTS parses them.
-- **Gemini for summaries**: Model `gemini-3.1-flash-lite-preview`, used in imap, prepare-text, and text-to-speech. Client initialized via `GEMINI_API_KEY` env var.
+- **Gemini**: Model `gemini-3.1-flash-lite-preview`. Used for summaries in imap and text-to-speech, and for LLM filter checks in prepare-text. Client initialized via `GEMINI_API_KEY` env var.
 - **Gotify notifications**: Sent on errors and notable events (unknown email source, filter matches, scraper failures, oversized/empty content).
 - **Text cleaning is centralized** in `prepare-text/prepare_text.py` via YAML-driven rules (URL removal, bracket cleanup, unsubscribe sections, pronunciation fixes, etc.).
 - **Immutability with pyrsistent**: All scripts use `PMap`, `PVector`, `freeze()`, `thaw()` from pyrsistent. `freeze()` at ingestion boundaries (YAML/JSON parse), `thaw()` at serialization. Function parameters use abstract types (`Mapping`, `Sequence`); return types use concrete immutables (`PMap`, `PVector`, `tuple`). Mutable escape hatches are documented with comments where third-party APIs require mutation (e.g., mutagen ID3 tags, pydub audio).

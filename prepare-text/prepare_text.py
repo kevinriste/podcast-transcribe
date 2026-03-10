@@ -73,7 +73,7 @@ def send_gotify_notification(title: str, message: str, priority: int = 6) -> Non
     final_data: Final = {"title": title, "message": message, "priority": priority}
     try:
         _ = requests.post(final_url, data=final_data, timeout=30)
-    except Exception:
+    except requests.RequestException:
         logging.exception("Failed to send Gotify notification")
 
 

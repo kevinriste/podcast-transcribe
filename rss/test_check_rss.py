@@ -298,7 +298,7 @@ class TestSendGotifyNotification:
         monkeypatch.setenv("GOTIFY_SERVER", "https://gotify.example.com")
         monkeypatch.setenv("GOTIFY_TOKEN", "test-token")
 
-        mock_post = MagicMock(side_effect=ConnectionError("network down"))
+        mock_post = MagicMock(side_effect=mod.requests.ConnectionError("network down"))
         monkeypatch.setattr(mod.requests, "post", mock_post)
 
         # Should not raise
