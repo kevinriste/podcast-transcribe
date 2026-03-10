@@ -482,8 +482,8 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                         "html.parser",
                     )
                     content_text = soup.get_text()
-                if content_text is None:
-                    logging.warning("No content extracted for %s — skipping without updating GUID", original_url)
+                if content_text is None:  # pyright: ignore[reportUnnecessaryComparison]
+                    logging.warning("No content extracted for %s — skipping without updating GUID", original_url)  # pyright: ignore[reportUnreachable]
                     continue
                 metadata_block = build_metadata_block(feed_title_raw, meta_title, original_url)
                 logging.info("Writing raw metadata and text to text input")

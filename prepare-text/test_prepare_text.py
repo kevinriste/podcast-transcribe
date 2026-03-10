@@ -7,6 +7,8 @@ import re
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
+import requests
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -734,8 +736,8 @@ class TestSendGotifyNotification:
         monkeypatch.setenv("GOTIFY_SERVER", "https://gotify.example.com")
         monkeypatch.setenv("GOTIFY_TOKEN", "test-token")
 
-        mock_post = MagicMock(side_effect=prepare_text.requests.ConnectionError("network down"))
-        monkeypatch.setattr(prepare_text.requests, "post", mock_post)
+        mock_post = MagicMock(side_effect=requests.ConnectionError("network down"))
+        monkeypatch.setattr("prepare_text.requests.post", mock_post)
 
         # Should not raise
         send_gotify_notification("Title", "Message")
@@ -745,7 +747,7 @@ class TestSendGotifyNotification:
         monkeypatch.delenv("GOTIFY_TOKEN", raising=False)
 
         mock_post = MagicMock()
-        monkeypatch.setattr(prepare_text.requests, "post", mock_post)
+        monkeypatch.setattr("prepare_text.requests.post", mock_post)
 
         send_gotify_notification("Title", "Message")
         mock_post.assert_not_called()
@@ -755,7 +757,7 @@ class TestSendGotifyNotification:
         monkeypatch.setenv("GOTIFY_TOKEN", "test-token-123")
 
         mock_post = MagicMock()
-        monkeypatch.setattr(prepare_text.requests, "post", mock_post)
+        monkeypatch.setattr("prepare_text.requests.post", mock_post)
 
         send_gotify_notification("Test Title", "Test Message", priority=8)
 
