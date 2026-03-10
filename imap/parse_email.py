@@ -51,7 +51,10 @@ def send_gotify_notification(title: str, message: str, priority: int = 6) -> Non
     gotify_url: Final = f"{gotify_server}/message?token={gotify_token}"
     # Mutable: requests requires dict
     data: Final[dict[str, str | int]] = {"title": title, "message": message, "priority": priority}
-    _ = requests.post(gotify_url, data=data, timeout=30)
+    try:
+        _ = requests.post(gotify_url, data=data, timeout=30)
+    except Exception:
+        logging.exception("Failed to send Gotify notification")
 
 
 def normalize_text(value: str) -> str:
@@ -193,7 +196,6 @@ def apply_id3_tags(mp3_path: str, title: str, description: str, source_url: str)
 def fetch_and_process_html(
     url: str,
     *,
-    final_request: bool = False,
     request_body: Mapping[str, str] | None = None,
 ) -> tuple[Document | None, str | None]:
     """Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
@@ -201,7 +203,6 @@ def fetch_and_process_html(
     Parameters
     ----------
     - url: The URL to fetch the HTML content from.
-    - final_request: Boolean indicating if this is the last attempt to fetch the article.
     - request_body: Optional dictionary of data for making a POST request instead of a GET.
 
     Returns
@@ -209,7 +210,6 @@ def fetch_and_process_html(
     - A tuple of (parsed document, content text), or (None, None) if fetching fails.
 
     """
-    _ = final_request
     try:
         logging.info("Fetching %s", url)
 
@@ -242,6 +242,9 @@ def fetch_and_process_html(
             finally:
                 browser.close()
 
+        if html_content is None:
+            return None, None
+
         html_content_parsed_for_title: Final = bare_extraction(
             html_content,
             with_metadata=True,
@@ -249,7 +252,7 @@ def fetch_and_process_html(
         webpage_text: Final = extract(html_content, include_comments=False, favor_recall=True)
 
     except Exception:
-        logging.exception("Error occurred")
+        logging.exception("Error fetching %s", url)
         return None, None
     else:
         if html_content_parsed_for_title is None:
@@ -374,6 +377,8 @@ def main() -> None:
             if msg_uid is not None:
                 flags = MailMessageFlags.SEEN
                 _ = mailbox.flag(msg_uid, flags, True)  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+            else:
+                logging.warning("msg_uid is None for message '%s' — cannot mark as seen", subject_raw)
 
 
 if __name__ == "__main__":

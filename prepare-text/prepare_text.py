@@ -71,7 +71,10 @@ def send_gotify_notification(title: str, message: str, priority: int = 6) -> Non
         return
     final_url: Final = f"{final_server}/message?token={final_token}"
     final_data: Final = {"title": title, "message": message, "priority": priority}
-    _ = requests.post(final_url, data=final_data, timeout=30)
+    try:
+        _ = requests.post(final_url, data=final_data, timeout=30)
+    except Exception:
+        logging.exception("Failed to send Gotify notification")
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +360,8 @@ def evaluate_llm_check(prompt_template: str, metadata: Mapping[str, str], conten
         final_parsed: Final = json.loads(final_response_text)
         return bool(final_parsed.get("result", False))
     except Exception:
-        logging.exception("LLM check failed")
-        return False
+        logging.exception("LLM check failed — treating as matched (fail-closed)")
+        return True
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from pyrsistent import PMap
@@ -36,10 +36,10 @@ def _load_check_rss() -> ModuleType:
         feeds_path.write_text("https://example.com/feed.xml\n", encoding="utf-8")
         created_feeds = True
 
-    # Mock feedparser.parse so the module-level for-loop does not make network requests.
+    # Module no longer runs the feed loop at import time (wrapped in main()),
+    # but we still need feeds.txt to exist for load_feeds().
     try:
-        with patch("feedparser.parse", return_value=MagicMock(feed=MagicMock(updated=None), entries=[])):
-            spec.loader.exec_module(mod)
+        spec.loader.exec_module(mod)
     finally:
         if created_feeds:
             feeds_path.unlink(missing_ok=True)
@@ -302,8 +302,17 @@ class TestModuleConstants:
     def test_wayback_feeds_is_tuple(self, mod):
         assert isinstance(mod.wayback_feeds, tuple)
 
-    def test_feeds_is_tuple(self, mod):
-        assert isinstance(mod.feeds, tuple)
+    def test_load_feeds_returns_tuple(self, mod, tmp_path):
+        feeds_path = tmp_path / "feeds.txt"
+        feeds_path.write_text("https://example.com/feed1.xml\nhttps://example.com/feed2.xml\n", encoding="utf-8")
+        original = mod.feeds_file
+        mod.feeds_file = str(feeds_path)
+        try:
+            result = mod.load_feeds()
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+        finally:
+            mod.feeds_file = original
 
     def test_wayback_feeds_contains_nyt_urls(self, mod):
         assert all("nytimes.com" in url for url in mod.wayback_feeds)
