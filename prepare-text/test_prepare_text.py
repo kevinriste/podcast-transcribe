@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 import pytest
 from pyrsistent import PMap, pmap, pvector
 
+import prepare_text
 from prepare_text import (
     _match_is_subset,
     apply_general_cleaning,
@@ -19,6 +20,7 @@ from prepare_text import (
     apply_text_replacements,
     clean_beehiiv_emphasis,
     clean_beehiiv_to_plaintext,
+    evaluate_llm_check,
     evaluate_match,
     parse_flags,
     split_metadata,
@@ -669,3 +671,21 @@ class TestApplyTextReplacements:
         text = "Content."
         result, _stats = apply_text_replacements(text, config, pmap())
         assert result == text
+
+
+# ---------------------------------------------------------------------------
+# evaluate_llm_check
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluateLlmCheck:
+    def test_returns_true_on_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fail-closed: if the LLM call throws, treat the filter as matched."""
+
+        def _boom(*_args: Any, **_kwargs: Any) -> None:
+            msg = "API down"
+            raise ConnectionError(msg)
+
+        monkeypatch.setattr(prepare_text, "get_gemini_client", _boom)
+        result = evaluate_llm_check("Is this about sports?", pmap({"title": "Test"}), "content")
+        assert result is True

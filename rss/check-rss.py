@@ -104,16 +104,14 @@ def build_metadata_block(feed_title: str, meta_title: str, original_url: str) ->
 
 def fetch_and_process_html(
     url: str,
-    final_request: bool = False,  # noqa: FBT001, FBT002
     *,
     request_body: Mapping[str, str] | None = None,
 ) -> str | None:
-    """Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
+    """Fetch HTML via Playwright and extract article text, verifying NYT authorship phrases.
 
     Parameters
     ----------
     - url: The URL to fetch the HTML content from.
-    - final_request: Boolean indicating if this is the last attempt to fetch the article.
     - request_body: Optional mapping of data for making a POST request instead of a GET.
 
     Returns
@@ -157,6 +155,9 @@ def fetch_and_process_html(
         finally:
             browser.close()
 
+    if html_content is None:
+        return None
+
     html_content_parsed_for_title: Final = bare_extraction(html_content, with_metadata=True)
     webpage_text: Final = extract(html_content, include_comments=False, favor_recall=True)
 
@@ -170,11 +171,6 @@ def fetch_and_process_html(
             "Kevin's or Wayback Machine's version of %s did not include the full article.",
             url,
         )
-        debug_message: Final = "Error: Incomplete NYT article in Wayback Machine"
-        debug_output: Final = f"{url}: {content_text}"
-
-        if final_request:
-            send_gotify_notification(debug_message, debug_output, priority=2)
         return None
 
     return content_text
@@ -248,7 +244,7 @@ def find_most_recent_guid_index(
         return None
 
 
-def main() -> None:  # noqa: PLR0915
+def main() -> None:  # noqa: PLR0912, PLR0915
     feeds: Final = load_feeds()
     for feed in feeds:  # noqa: PLR1702
         try:
@@ -354,7 +350,6 @@ def main() -> None:  # noqa: PLR0915
                     content_text = entry_description_raw
                 elif feed in wayback_feeds:
                     try:
-                        send_error_with_gotify = False
                         max_timedelta_since_article_added_to_feed = timedelta(days=2)
                         timedelta_since_article_added_to_feed = now.replace(tzinfo=None) - raw_date.replace(
                             tzinfo=None,
@@ -391,8 +386,6 @@ def main() -> None:  # noqa: PLR0915
                                     encoding="utf-8",
                                 ) as json_file:
                                     json.dump(snapshots_list_for_json, json_file, indent=2)
-
-                            content_text = None
 
                             this_year = datetime.now(tz=UTC).year
                             calendar_captures_api_url_this_year = (
@@ -469,7 +462,7 @@ def main() -> None:  # noqa: PLR0915
                         logging.exception("Error occurred")
                         logging.info("%s URL caused the issue.", original_url)
                         debug_message = "RSS URL catastrophic error"
-                        debug_output = f"{original_url}"
+                        debug_output = original_url
 
                         if send_error_with_gotify:
                             send_gotify_notification(
@@ -484,6 +477,8 @@ def main() -> None:  # noqa: PLR0915
                         "html.parser",
                     )
                     content_text = soup.get_text()
+                if content_text is None:
+                    continue
                 metadata_block = build_metadata_block(feed_title_raw, meta_title, original_url)
                 logging.info("Writing raw metadata and text to text input")
                 _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")

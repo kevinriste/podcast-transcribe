@@ -13,7 +13,7 @@ from pyrsistent import PMap
 
 
 def _load_check_rss() -> ModuleType:
-    """Load check-rss.py as a module, mocking heavy I/O to prevent network calls on import.
+    """Load check-rss.py as a module (main() guard prevents import-time execution).
 
     Returns
     -------
@@ -294,6 +294,16 @@ class TestSendGotifyNotification:
 
         mock_post.assert_not_called()
 
+    def test_does_not_raise_when_post_throws(self, mod, monkeypatch):
+        monkeypatch.setenv("GOTIFY_SERVER", "https://gotify.example.com")
+        monkeypatch.setenv("GOTIFY_TOKEN", "test-token")
+
+        mock_post = MagicMock(side_effect=ConnectionError("network down"))
+        monkeypatch.setattr(mod.requests, "post", mock_post)
+
+        # Should not raise
+        mod.send_gotify_notification("Title", "Message")
+
 
 # ===========================================================================
 # Module-level constants
@@ -302,17 +312,20 @@ class TestModuleConstants:
     def test_wayback_feeds_is_tuple(self, mod):
         assert isinstance(mod.wayback_feeds, tuple)
 
-    def test_load_feeds_returns_tuple(self, mod, tmp_path):
+    def test_load_feeds_returns_tuple(self, mod, tmp_path, monkeypatch):
         feeds_path = tmp_path / "feeds.txt"
         feeds_path.write_text("https://example.com/feed1.xml\nhttps://example.com/feed2.xml\n", encoding="utf-8")
-        original = mod.feeds_file
-        mod.feeds_file = str(feeds_path)
-        try:
-            result = mod.load_feeds()
-            assert isinstance(result, tuple)
-            assert len(result) == 2
-        finally:
-            mod.feeds_file = original
+        monkeypatch.setattr(mod, "feeds_file", str(feeds_path))
+        result = mod.load_feeds()
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_load_feeds_strips_trailing_newline(self, mod, tmp_path, monkeypatch):
+        feeds_path = tmp_path / "feeds.txt"
+        feeds_path.write_text("https://example.com/feed.xml\n\n", encoding="utf-8")
+        monkeypatch.setattr(mod, "feeds_file", str(feeds_path))
+        result = mod.load_feeds()
+        assert result == ("https://example.com/feed.xml", "")
 
     def test_wayback_feeds_contains_nyt_urls(self, mod):
         assert all("nytimes.com" in url for url in mod.wayback_feeds)

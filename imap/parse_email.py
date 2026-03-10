@@ -198,12 +198,12 @@ def fetch_and_process_html(
     *,
     request_body: Mapping[str, str] | None = None,
 ) -> tuple[Document | None, str | None]:
-    """Fetches HTML content from a given URL, processes it, and checks if it contains a specific phrase.
+    """Fetch HTML via Playwright and extract article text using trafilatura.
 
     Parameters
     ----------
     - url: The URL to fetch the HTML content from.
-    - request_body: Optional dictionary of data for making a POST request instead of a GET.
+    - request_body: Optional mapping of data for making a GET request with query parameter.
 
     Returns
     -------
