@@ -358,7 +358,7 @@ def evaluate_llm_check(prompt_template: str, metadata: Mapping[str, str], conten
         )
         final_response_text: Final = final_response.text or ""
         final_parsed: Final = json.loads(final_response_text)
-        # Default True: if LLM returns JSON without "result" key, treat as matched (fail-closed)
+        # Defensive: schema requires "result" but default True if somehow missing (fail-closed)
         return bool(final_parsed.get("result", True))
     except Exception:
         logging.exception("LLM check failed — treating as matched (fail-closed)")

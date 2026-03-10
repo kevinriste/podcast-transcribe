@@ -11,7 +11,6 @@ I created this in order to consume Substack subscriptions in the form of a podca
   - IMAP parsing (`imap/parse_email.py`) downloads unseen emails and writes text inputs with metadata headers.
   - RSS parsing (`rss/check-rss.py`) reads `rss/feeds.txt`, fetches new items, and writes text inputs with metadata headers.
   - Text preparation (`prepare-text/prepare_text.py`) applies YAML-driven per-source filtering, cleaning, and transformation. Writes daily JSON stats.
-  - Archives a copy of text inputs to `text-to-speech/input-text-archive`.
   - Google TTS (`text-to-speech/text_to_speech.py`) chunks text, generates MP3s, writes ID3 tags, and moves audio into `dropcaster-docker/audio`.
   - Dropcaster renders the RSS feed when audio changes.
   - Audio older than 8 weeks is archived to `dropcaster-docker/audio-archive` before Dropcaster runs.
