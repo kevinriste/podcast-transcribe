@@ -348,7 +348,7 @@ def main() -> None:
                 original_url = url_text_compact
                 html_content_parsed_for_title, webpage_text = fetch_and_process_html(
                     url=local_scraper_url,
-                    request_body={"url": original_url},  # Mutable: playwright requires dict
+                    request_body={"url": original_url},  # Mutable: small inline mapping, not worth freezing
                 )
                 if webpage_text is None:
                     logging.info(

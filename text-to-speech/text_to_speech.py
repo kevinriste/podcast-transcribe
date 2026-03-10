@@ -241,7 +241,7 @@ def text_to_speech(incoming_filename: str) -> None:
                 first_whitespace_after_min_step_size = next_text_starter_position + max_step_size
                 if first_whitespace_after_min_step_size < len(content_text):
                     logging.info(
-                        "max_step_size met before end of email %s",
+                        "max_step_size met before end of %s",
                         incoming_path.name,
                     )
             text_to_process = content_text[next_text_starter_position:first_whitespace_after_min_step_size]

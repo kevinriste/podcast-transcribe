@@ -358,13 +358,13 @@ def evaluate_llm_check(prompt_template: str, metadata: Mapping[str, str], conten
         )
         final_response_text: Final = final_response.text or ""
         final_parsed: Final = json.loads(final_response_text)
-        # Defensive: schema requires "result" but default True if somehow missing (fail-closed)
+        # Defensive: if "result" key missing, default True so the filter fires and content is skipped
         return bool(final_parsed.get("result", True))
     except Exception:
-        logging.exception("LLM check failed — treating as matched (fail-closed)")
+        logging.exception("LLM check failed — treating filter as matched (content will be skipped)")
         send_gotify_notification(
             "LLM check failed — content may be incorrectly filtered",
-            f"Title: {final_title}\nThe filter was treated as matched (fail-closed).",
+            f"Title: {final_title}\nThe filter was treated as matched (content will be skipped).",
             priority=8,
         )
         return True
