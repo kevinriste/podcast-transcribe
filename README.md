@@ -10,6 +10,7 @@ I created this in order to consume Substack subscriptions in the form of a podca
 - `process.sh` orchestrates the pipeline every 20 minutes:
   - IMAP parsing (`imap/parse_email.py`) downloads unseen emails and writes text inputs with metadata headers.
   - RSS parsing (`rss/check-rss.py`) reads `rss/feeds.txt`, fetches new items, and writes text inputs with metadata headers.
+  - Text preparation (`prepare-text/prepare_text.py`) applies YAML-driven per-source filtering, cleaning, and transformation. Writes daily JSON stats.
   - Archives a copy of text inputs to `text-to-speech/input-text-archive`.
   - Google TTS (`text-to-speech/text_to_speech.py`) chunks text, generates MP3s, writes ID3 tags, and moves audio into `dropcaster-docker/audio`.
   - Dropcaster renders the RSS feed when audio changes.
@@ -18,11 +19,25 @@ I created this in order to consume Substack subscriptions in the form of a podca
 Optional scripts:
 - None (OpenAI/AWS TTS scripts removed).
 
+## Development
+
+Each subproject is an independent uv-managed Python project. From any subproject directory:
+
+```bash
+uv sync                      # Install deps
+uv run pytest -v             # Run tests
+uv run ruff check .          # Lint
+uv run ruff format --check . # Format check
+uv run basedpyright          # Type check
+```
+
+CI (GitHub Actions) runs all four checks on every PR and push to main across all subprojects.
+
 ## Runtime requirements
 
 - Ubuntu + cron (current schedule: `*/20 * * * * bash -l /home/flog99/dev/podcast-transcribe/process-caller.sh >> /home/flog99/process-log.log 2>&1`)
 - Docker + Docker Compose (Dropcaster and nginx-proxy stack).
-- Python via `pyenv` + `uv` for IMAP/RSS/Google TTS (pyproject requires >=3.9).
+- Python 3.12+ via `pyenv` + `uv` for all subprojects.
 - Playwright browsers installed for IMAP/RSS fetches.
 - `ffmpeg` available on PATH (required by `pydub`).
 - Dropcaster is a git submodule (`dropcaster-docker/dropcaster`), so run `git submodule update --init --recursive` after cloning.
@@ -139,6 +154,7 @@ nginx-proxy + ACME:
 
 ## Manual runs
 
-- IMAP parser: `cd imap && /home/flog99/.local/bin/uv run python3 parse_email.py`
-- RSS parser: `cd rss && /home/flog99/.local/bin/uv run python3 check-rss.py`
-- Google TTS: `cd text-to-speech && /home/flog99/.local/bin/uv run python3 text_to_speech.py`
+- IMAP parser: `cd imap && uv run python3 parse_email.py`
+- RSS parser: `cd rss && uv run python3 check-rss.py`
+- Prepare text: `cd prepare-text && uv run python3 prepare_text.py`
+- Google TTS: `cd text-to-speech && uv run python3 text_to_speech.py`

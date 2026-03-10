@@ -9,6 +9,7 @@ dependencies = [
     "google-cloud-texttospeech>=2.23.0",
     "mutagen>=1.47.0",
     "google-genai>=1.0.0",
+    "pyrsistent>=0.20.0",
     "pydub>=0.25.1",
     "requests>=2.32.3",
 ]
@@ -16,6 +17,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "basedpyright>=1.20.0",
+    "pytest>=8.0",
     "ruff>=0.7.0",
     "types-beautifulsoup4>=4.12.0",
     "types-requests>=2.32.0",
