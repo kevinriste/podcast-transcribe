@@ -193,7 +193,7 @@ def process_files() -> None:
 def text_to_speech(incoming_filename: str) -> None:
     incoming_path: Final = pathlib.Path(incoming_filename)
     raw_bytes: Final = incoming_path.read_bytes()
-    logging.info("Synthesizing speech for email %s", incoming_path.name)
+    logging.info("Synthesizing speech for %s", incoming_path.name)
     name: Final = incoming_path.stem
     input_text_raw: Final = raw_bytes.decode("utf8")
     metadata: PMap[str, str]

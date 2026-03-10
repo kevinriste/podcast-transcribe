@@ -320,12 +320,12 @@ class TestModuleConstants:
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    def test_load_feeds_strips_trailing_newline(self, mod, tmp_path, monkeypatch):
+    def test_load_feeds_skips_empty_lines(self, mod, tmp_path, monkeypatch):
         feeds_path = tmp_path / "feeds.txt"
         feeds_path.write_text("https://example.com/feed.xml\n\n", encoding="utf-8")
         monkeypatch.setattr(mod, "feeds_file", str(feeds_path))
         result = mod.load_feeds()
-        assert result == ("https://example.com/feed.xml", "")
+        assert result == ("https://example.com/feed.xml",)
 
     def test_wayback_feeds_contains_nyt_urls(self, mod):
         assert all("nytimes.com" in url for url in mod.wayback_feeds)

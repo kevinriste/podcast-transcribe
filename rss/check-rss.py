@@ -54,7 +54,7 @@ EXPECTED_TIMESTAMP_LENGTH: Final = 9
 
 def load_feeds() -> tuple[str, ...]:
     with pathlib.Path(feeds_file).open(encoding="utf-8") as feeds_fh:
-        return tuple(line.rstrip() for line in feeds_fh)
+        return tuple(line.rstrip() for line in feeds_fh if line.rstrip())
 
 
 def send_gotify_notification(title: str, message: str, priority: int = 6) -> None:
@@ -112,7 +112,7 @@ def fetch_and_process_html(
     Parameters
     ----------
     - url: The URL to fetch the HTML content from.
-    - request_body: Optional mapping of data for making a POST request instead of a GET.
+    - request_body: Optional mapping of data for making a GET request with query parameter.
 
     Returns
     -------
