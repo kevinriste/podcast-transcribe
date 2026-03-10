@@ -29,10 +29,20 @@ def _load_check_rss() -> ModuleType:
     assert spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
 
+    # Create a dummy feeds.txt if it doesn't exist (e.g. in CI where *.txt is gitignored).
+    feeds_path = Path(__file__).parent / "feeds.txt"
+    created_feeds = False
+    if not feeds_path.exists():
+        feeds_path.write_text("https://example.com/feed.xml\n", encoding="utf-8")
+        created_feeds = True
+
     # Mock feedparser.parse so the module-level for-loop does not make network requests.
-    # The feeds tuple will still be populated from the real feeds.txt.
-    with patch("feedparser.parse", return_value=MagicMock(feed=MagicMock(updated=None), entries=[])):
-        spec.loader.exec_module(mod)
+    try:
+        with patch("feedparser.parse", return_value=MagicMock(feed=MagicMock(updated=None), entries=[])):
+            spec.loader.exec_module(mod)
+    finally:
+        if created_feeds:
+            feeds_path.unlink(missing_ok=True)
 
     sys.modules["check_rss"] = mod
     return mod

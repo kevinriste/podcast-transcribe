@@ -65,7 +65,7 @@ Root `pyproject.toml` defines shared ruff + basedpyright config. Subproject `pyp
 
 5. **text-to-speech/text_to_speech.py** — Reads `text-to-speech/text-input/*.txt`, parses metadata headers (`META_FROM`, `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`, `META_SOURCE_NAME`), cleans text aggressively, chunks into 3-5k char segments, calls Google Cloud TTS (en-US-Wavenet-F), stitches MP3 chunks with pydub, generates Gemini summary, writes ID3 tags. Output goes to `dropcaster-docker/audio/`.
 
-5. **Dropcaster** (Docker) regenerates `index.rss` when audio files change. Audio older than 8 weeks is archived.
+6. **Dropcaster** (Docker) regenerates `index.rss` when audio files change. Audio older than 8 weeks is archived.
 
 **Email filters** in `parse_email.py` (set `move_to_podcast = False` to skip):
 - Jessica Valenti: skip unless subject contains "the week in"
