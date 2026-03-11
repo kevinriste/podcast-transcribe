@@ -57,26 +57,24 @@ Root `pyproject.toml` defines shared ruff + basedpyright config. Subproject `pyp
    - `link`: fetch full article via local scraper at `localhost:3001`
    - `youtube`: download audio via yt-dlp, write ID3 tags directly (bypasses TTS)
 
-2. **rss/check-rss.py** — Polls feeds from `rss/feeds.txt`. NYT feeds use local scraper at `localhost:3002` with Wayback Machine fallback. Bill Simmons feed uses Gemini to detect/skip NFL episodes. GUIDs tracked in `rss/feed-guids/`.
+2. **rss/check-rss.py** — Polls feeds from `rss/feeds.txt`. NYT feeds use local scraper at `localhost:3002` with Wayback Machine fallback. GUIDs tracked in `rss/feed-guids/`.
 
 3. **prepare-text/prepare_text.py** — YAML-driven text filtering, cleaning, and transformation. Reads `filters.yaml` for per-source rules (text removals, replacements, general cleaning). Writes daily JSON stats to `prepare-text/stats/`.
 
-4. **process.sh** archives text inputs to `text-to-speech/input-text-archive/`, removes empty files.
+4. **process.sh** orchestrates the pipeline: runs imap, rss, prepare-text, and text-to-speech in sequence, then archives old audio and triggers Dropcaster.
 
-5. **text-to-speech/text_to_speech.py** — Reads `text-to-speech/text-input/*.txt`, parses metadata headers (`META_FROM`, `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`, `META_SOURCE_NAME`), cleans text aggressively, chunks into 3-5k char segments, calls Google Cloud TTS (en-US-Wavenet-F), stitches MP3 chunks with pydub, generates Gemini summary, writes ID3 tags. Output goes to `dropcaster-docker/audio/`.
+5. **text-to-speech/text_to_speech.py** — Reads `prepare-text/text-input-cleaned/*.txt`, parses metadata headers (`META_FROM`, `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`, `META_SOURCE_NAME`, `META_INTAKE_TYPE`), chunks into 3-5k char segments, calls Google Cloud TTS (en-US-Wavenet-F), stitches MP3 chunks with pydub, generates Gemini summary, writes ID3 tags. Output goes to `dropcaster-docker/audio/`.
 
 6. **Dropcaster** (Docker) regenerates `index.rss` when audio files change. Audio older than 8 weeks is archived.
 
-**Email filters** in `parse_email.py` (set `move_to_podcast = False` to skip):
-- Jessica Valenti: skip unless subject contains "the week in"
-- K-Culture with Jae-Ha Kim: skip when subject contains "BTS"
+**Email/RSS filters** are configured in `prepare-text/filters.yaml` (YAML-driven, per-source match rules with skip/notify actions and optional LLM checks). See `prepare-text/filters.example.yaml` for schema documentation.
 
 ## Key conventions
 
 - **Metadata headers**: All text input files start with `META_` prefixed lines, blank line, then content. Both imap and rss writers produce these; TTS parses them.
-- **Gemini for summaries**: Model `gemini-3.1-flash-lite-preview`, used in all three subprojects. Client initialized via `GEMINI_API_KEY` env var.
-- **Gotify notifications**: Sent on errors and notable events (unknown email source, NFL whitelist, scraper failures).
-- **Text cleaning happens twice**: once in the intake scripts (URL removal, bracket cleanup) and again in TTS (more aggressive: unsubscribe sections, social links, pronunciation fixes).
+- **Gemini**: Model `gemini-3.1-flash-lite-preview`. Used for summaries in imap and text-to-speech, and for LLM filter checks in prepare-text. Client initialized via `GEMINI_API_KEY` env var.
+- **Gotify notifications**: Sent on errors and notable events (unknown email source, filter matches, scraper failures, oversized/empty content).
+- **Text cleaning is centralized** in `prepare-text/prepare_text.py` via YAML-driven rules (URL removal, bracket cleanup, unsubscribe sections, pronunciation fixes, etc.).
 - **Immutability with pyrsistent**: All scripts use `PMap`, `PVector`, `freeze()`, `thaw()` from pyrsistent. `freeze()` at ingestion boundaries (YAML/JSON parse), `thaw()` at serialization. Function parameters use abstract types (`Mapping`, `Sequence`); return types use concrete immutables (`PMap`, `PVector`, `tuple`). Mutable escape hatches are documented with comments where third-party APIs require mutation (e.g., mutagen ID3 tags, pydub audio).
 - **`Final` annotations**: Used on all single-assignment local variables (not inside loops — Python limitation).
 - **Frozen dataclasses**: `@dataclass(frozen=True, slots=True)` for all dataclasses.

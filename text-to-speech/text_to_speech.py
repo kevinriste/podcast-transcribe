@@ -13,7 +13,7 @@ from typing import Final
 
 from google import genai
 from google.cloud import texttospeech
-from mutagen.id3 import ID3, TIT2, TT3, WXXX, ID3NoHeaderError  # pyright: ignore[reportPrivateImportUsage]
+from mutagen.id3 import ID3, TIT2, TIT3, WXXX, ID3NoHeaderError  # pyright: ignore[reportPrivateImportUsage]
 from pydub import AudioSegment  # type: ignore[import-untyped]  # pyright: ignore[reportMissingTypeStubs]
 from pyrsistent import PMap, PVector, pmap, pvector
 
@@ -137,7 +137,7 @@ def apply_id3_tags(mp3_path: str, description: str, source_url: str, title: str)
     if title:
         tags.add(TIT2(encoding=3, text=title))  # pyright: ignore[reportUnknownMemberType]
     if description:
-        tags.add(TT3(encoding=3, text=description))  # pyright: ignore[reportUnknownMemberType]
+        tags.add(TIT3(encoding=3, text=description))  # pyright: ignore[reportUnknownMemberType]
     if source_url:
         tags.add(WXXX(encoding=3, desc="Source", url=source_url))  # pyright: ignore[reportUnknownMemberType]
     _ = tags.save(mp3_path, v1=2)  # pyright: ignore[reportUnknownMemberType]
@@ -184,13 +184,16 @@ def _build_title_for_tag(metadata: Mapping[str, str], file_title: str) -> str:
 def process_files() -> None:
     txt_files: Final = sorted(pathlib.Path(INPUT_DIR).glob("*.txt"))
     for f in txt_files:
-        text_to_speech(str(f))
+        try:
+            text_to_speech(str(f))
+        except Exception:
+            logging.exception("Error processing %s — skipping", f.name)
 
 
 def text_to_speech(incoming_filename: str) -> None:
     incoming_path: Final = pathlib.Path(incoming_filename)
     raw_bytes: Final = incoming_path.read_bytes()
-    logging.info("Synthesizing speech for email %s", incoming_path.name)
+    logging.info("Synthesizing speech for %s", incoming_path.name)
     name: Final = incoming_path.stem
     input_text_raw: Final = raw_bytes.decode("utf8")
     metadata: PMap[str, str]
@@ -238,7 +241,7 @@ def text_to_speech(incoming_filename: str) -> None:
                 first_whitespace_after_min_step_size = next_text_starter_position + max_step_size
                 if first_whitespace_after_min_step_size < len(content_text):
                     logging.info(
-                        "max_step_size met before end of email %s",
+                        "max_step_size met before end of %s",
                         incoming_path.name,
                     )
             text_to_process = content_text[next_text_starter_position:first_whitespace_after_min_step_size]

@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock
+
+import requests
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -12,6 +15,7 @@ if TYPE_CHECKING:
 import pytest
 from pyrsistent import PMap, pmap, pvector
 
+import prepare_text
 from prepare_text import (
     _match_is_subset,
     apply_general_cleaning,
@@ -19,8 +23,10 @@ from prepare_text import (
     apply_text_replacements,
     clean_beehiiv_emphasis,
     clean_beehiiv_to_plaintext,
+    evaluate_llm_check,
     evaluate_match,
     parse_flags,
+    send_gotify_notification,
     split_metadata,
     validate_config,
     validate_match_block,
@@ -669,3 +675,95 @@ class TestApplyTextReplacements:
         text = "Content."
         result, _stats = apply_text_replacements(text, config, pmap())
         assert result == text
+
+
+# ---------------------------------------------------------------------------
+# evaluate_llm_check
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluateLlmCheck:
+    def test_returns_true_on_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fail-closed: if the LLM call throws, treat the filter as matched."""
+
+        def _boom(*_args: Any, **_kwargs: Any) -> None:
+            msg = "API down"
+            raise ConnectionError(msg)
+
+        monkeypatch.setattr(prepare_text, "get_gemini_client", _boom)
+        result = evaluate_llm_check("Is this about sports?", pmap({"title": "Test"}), "content")
+        assert result is True
+
+    def test_returns_true_when_result_key_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fail-closed: if LLM returns JSON without 'result' key, treat as matched."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"answer": true}'  # No "result" key
+        mock_client.models.generate_content.return_value = mock_response
+        monkeypatch.setattr(prepare_text, "get_gemini_client", lambda: mock_client)
+
+        result = evaluate_llm_check("prompt", pmap({"title": "Test"}), "content")
+        assert result is True
+
+    def test_returns_true_when_llm_says_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"result": true}'
+        mock_client.models.generate_content.return_value = mock_response
+        monkeypatch.setattr(prepare_text, "get_gemini_client", lambda: mock_client)
+
+        result = evaluate_llm_check("prompt", pmap({"title": "Test"}), "content")
+        assert result is True
+
+    def test_returns_false_when_llm_says_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.text = '{"result": false}'
+        mock_client.models.generate_content.return_value = mock_response
+        monkeypatch.setattr(prepare_text, "get_gemini_client", lambda: mock_client)
+
+        result = evaluate_llm_check("prompt", pmap({"title": "Test"}), "content")
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# send_gotify_notification
+# ---------------------------------------------------------------------------
+
+
+class TestSendGotifyNotification:
+    def test_does_not_raise_when_post_throws(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GOTIFY_SERVER", "https://gotify.example.com")
+        monkeypatch.setenv("GOTIFY_TOKEN", "test-token")
+
+        mock_post = MagicMock(side_effect=requests.ConnectionError("network down"))
+        monkeypatch.setattr("prepare_text.requests.post", mock_post)
+
+        # Should not raise
+        send_gotify_notification("Title", "Message")
+
+    def test_skips_when_env_vars_not_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GOTIFY_SERVER", raising=False)
+        monkeypatch.delenv("GOTIFY_TOKEN", raising=False)
+
+        mock_post = MagicMock()
+        monkeypatch.setattr("prepare_text.requests.post", mock_post)
+
+        send_gotify_notification("Title", "Message")
+        mock_post.assert_not_called()
+
+    def test_sends_with_correct_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GOTIFY_SERVER", "https://gotify.example.com")
+        monkeypatch.setenv("GOTIFY_TOKEN", "test-token-123")
+
+        mock_post = MagicMock()
+        monkeypatch.setattr("prepare_text.requests.post", mock_post)
+
+        send_gotify_notification("Test Title", "Test Message", priority=8)
+
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert call_args[0][0] == "https://gotify.example.com/message?token=test-token-123"
+        assert call_args[1]["data"]["title"] == "Test Title"
+        assert call_args[1]["data"]["message"] == "Test Message"
+        assert call_args[1]["data"]["priority"] == 8
