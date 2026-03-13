@@ -23,15 +23,13 @@ eval "$(pyenv init -)"
 cd /home/flog99/dev/podcast-transcribe/imap
 echo "Main--Install IMAP Parse Emails dependencies"
 /home/flog99/.local/bin/uv sync
-echo "Main--Run IMAP Parse Emails script"
-/home/flog99/.local/bin/uv run python3 parse_email.py
 echo "Main--Ensure Playwright is up to date"
 /home/flog99/.local/bin/uv run playwright install
+echo "Main--Run IMAP Parse Emails script"
+/home/flog99/.local/bin/uv run python3 parse_email.py
 cd /home/flog99/dev/podcast-transcribe/rss
 echo "Main--Install Parse RSS dependencies"
 /home/flog99/.local/bin/uv sync
-echo "Main--Ensure Playwright is up to date"
-/home/flog99/.local/bin/uv run playwright install
 echo "Main--Run Parse RSS script"
 /home/flog99/.local/bin/uv run python3 check-rss.py
 cd /home/flog99/dev/podcast-transcribe/prepare-text

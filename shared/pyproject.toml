@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "podcast-shared"
+version = "0.1.0"
+description = "Shared utilities for podcast-transcribe pipeline"
+requires-python = ">=3.12"
+dependencies = [
+    "google-genai>=1.0.0",
+    "mutagen>=1.47.0",
+    "requests>=2.32.3",
+]
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.20.0",
+    "ruff>=0.7.0",
+]
+
+[tool.ruff]
+extend = "../pyproject.toml"
+
+[tool.basedpyright]
+extends = "../pyproject.toml"

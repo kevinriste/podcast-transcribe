@@ -1,4 +1,3 @@
-__pycache__/
 /nginx-proxy-certbot-docker/acme/
 /nginx-proxy-certbot-docker/certs/
 /nginx-proxy-certbot-docker/html/
