@@ -2,12 +2,10 @@ import functools
 import logging
 import math
 import operator
-import os
 import pathlib
 import re
 import uuid
 from datetime import datetime
-from glob import glob
 
 from google.cloud import texttospeech
 from podcast_shared import apply_id3_tags, generate_summary, split_metadata
@@ -55,7 +53,7 @@ def to_base36(value):
 
 
 def process_files() -> None:
-    txt_files = sorted(glob(f"{input_dir}/*.txt"))
+    txt_files = sorted(pathlib.Path(input_dir).glob("*.txt"))
     for f in txt_files:
         text_to_speech(f)
 
@@ -135,10 +133,8 @@ def text_to_speech(incoming_filename) -> None:
                     },
                 )
                 mp3_filename = f"{temp_output_dir}/{uuid.uuid4()}.mp3"
-                with pathlib.Path(mp3_filename).open("wb") as out:
-                    # Write the response to the output file.
-                    out.write(response.audio_content)
-                    logging.info('Audio content written to file "%s"', mp3_filename)
+                pathlib.Path(mp3_filename).write_bytes(response.audio_content)
+                logging.info('Audio content written to file "%s"', mp3_filename)
                 mp3files.append(mp3_filename)
 
             mp3_segments = mp3files
@@ -165,7 +161,7 @@ def text_to_speech(incoming_filename) -> None:
 
             logging.info("Exporting %s", output_filename)
             audio.export(output_filename, format="mp3")
-            file_title = os.path.splitext(pathlib.Path(output_filename).name)[0]
+            file_title = pathlib.Path(output_filename).stem
             file_title = re.sub(r"-\d{8}$", "", file_title)
             if meta_from and meta_title:
                 now = datetime.now()

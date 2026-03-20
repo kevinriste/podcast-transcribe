@@ -235,7 +235,7 @@ def main() -> None:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(youtube_url, download=True)
                         base_filename = ydl.prepare_filename(info)
-                        mp3_filename = os.path.splitext(base_filename)[0] + ".mp3"
+                        mp3_filename = str(pathlib.Path(base_filename).with_suffix(".mp3"))
                         video_title = info.get("title") or "YouTube Video"
                         video_url = info.get("webpage_url") or youtube_url
                         video_description = info.get("description") or ""
