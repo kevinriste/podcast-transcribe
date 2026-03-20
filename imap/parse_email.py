@@ -194,6 +194,9 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
             html_content,
             with_metadata=True,
         )
+        if html_content_parsed_for_title is None:
+            logging.error("trafilatura returned no metadata for %s", url)
+            return None, None
         webpage_text = extract(html_content, include_comments=False, favor_recall=True)
         content_text = (
             (html_content_parsed_for_title.as_dict().get("title") or "") + ".\n" + "\n" + (webpage_text or "")
@@ -291,7 +294,7 @@ def main() -> None:
                         url=local_scraper_url,
                         request_body={"url": original_url},
                     )
-                    if webpage_text is None:
+                    if webpage_text is None or html_content_parsed_for_title is None:
                         logging.info(
                             "could not parse webpage, saving for next time: %s",
                             original_url,
@@ -314,10 +317,11 @@ def main() -> None:
                 flags = MailMessageFlags.SEEN
                 mailbox.flag(msg.uid, flags, value=True)
             except Exception:
-                logging.exception("Error processing email from %s: %s", msg.from_values.email, msg.subject)
+                from_email_for_error = msg.from_values.email if msg.from_values else "unknown"
+                logging.exception("Error processing email from %s: %s", from_email_for_error, msg.subject)
                 send_gotify_notification(
                     "Email processing error",
-                    f"Failed to process email from {msg.from_values.email}: {msg.subject}",
+                    f"Failed to process email from {from_email_for_error}: {msg.subject}",
                 )
 
 

@@ -143,7 +143,7 @@ def apply_id3_tags(
     title: str,
     description: str,
     source_url: str,
-    v1: int | None = 2,
+    v1: int = 2,
 ) -> None:
     """Write ID3 tags (title, description, source URL) to an MP3 file."""
     logger.info("Writing ID3 tags to MP3")
