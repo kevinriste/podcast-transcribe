@@ -6,7 +6,8 @@ target-version = "py312"
 select = ["ALL"]
 preview = true
 ignore = [
-    "D",        # pydocstyle — revisiting separately
+    "D203",     # blank line before class docstring — conflicts with D211
+    "D213",     # multi-line summary on second line — conflicts with D212
     "CPY",      # copyright headers
     "LOG015",   # root logger — standalone scripts, named loggers add noise
     "C901",     # complexity — procedural pipeline scripts
