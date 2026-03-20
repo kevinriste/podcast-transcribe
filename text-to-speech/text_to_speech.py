@@ -61,7 +61,7 @@ def to_base36(value: int) -> str:
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
     if value == 0:
         return "0"
-    digits = []
+    digits: list[str] = []
     while value:
         value, remainder = divmod(value, 36)
         digits.append(alphabet[remainder])
@@ -85,7 +85,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
         metadata, content_text = split_metadata(input_text_raw)
         # initialize the API client
         client = texttospeech.TextToSpeechClient()
-        mp3files = []
+        mp3files: list[str] = []
         # we can send up to 5000 characters per request, so split up the text
         min_step_size = 3000
         max_step_size = 5000
@@ -143,7 +143,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
                     counter,
                     max_steps,
                 )
-                response = client.synthesize_speech(
+                response = client.synthesize_speech(  # pyright: ignore[reportUnknownMemberType]
                     request={
                         "input": synthesis_input,
                         "voice": voice,
@@ -159,7 +159,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
             segments = [AudioSegment.from_mp3(f) for f in mp3_segments]
 
             logging.info("Stitching together %d mp3 files for %s", len(segments), name)
-            audio = functools.reduce(operator.add, segments)
+            audio: AudioSegment = functools.reduce(operator.add, segments)  # pyright: ignore[reportAny]
 
             current_datetime = datetime.now(tz=UTC).strftime("%Y%m%d")
             # Filename format: "YYYYMMDD-HHMMSS-<rest>"
@@ -178,7 +178,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
                 output_filename = f"{final_output_dir}/{name_without_date}-{date_prefix}{current_datetime}.mp3"
 
             logging.info("Exporting %s", output_filename)
-            audio.export(output_filename, format="mp3")
+            _ = audio.export(output_filename, format="mp3")
             file_title = pathlib.Path(output_filename).stem
             file_title = re.sub(r"-\d{8}$", "", file_title)
             if meta_from and meta_title:

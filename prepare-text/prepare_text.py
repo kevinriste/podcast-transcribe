@@ -12,7 +12,10 @@ import pathlib
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 import markdown
 import yaml
@@ -108,11 +111,33 @@ class TextReplacement(_TextReplacementOptional):
     reason: str
 
 
+# match: dict[str, dict[str, str]], plus dynamic cleaning step keys → bool
+CleaningOverride = dict[str, object]
+
+
+class GeneralCleaningConfig(TypedDict, total=False):
+    """The general_cleaning section of filters.yaml."""
+
+    beehiiv_plaintext_conversion: bool
+    beehiiv_emphasis_removal: bool
+    url_removal: bool
+    legal_bracket_unwrap: bool
+    triple_dash_removal: bool
+    empty_bracket_removal: bool
+    whitespace_collapse: bool
+    unsubscribe_removal: bool
+    view_online_removal: bool
+    substack_refs_removal: bool
+    standalone_at_removal: bool
+    end_of_line_punctuation: bool
+    overrides: list[CleaningOverride]
+
+
 class PipelineConfig(TypedDict, total=False):
     """Root config structure from filters.yaml."""
 
     filters: list[FilterRule]
-    general_cleaning: dict[str, Any]  # dynamic keys from CLEANING_STEPS
+    general_cleaning: GeneralCleaningConfig
     text_removals: list[TextRemoval]
     text_replacements: list[TextReplacement]
 
@@ -161,7 +186,7 @@ def parse_flags(flags_raw: str | list[str] | None) -> int:
     return result
 
 
-def validate_match_block(match_block: dict[str, dict[str, str]], context: str) -> None:
+def validate_match_block(match_block: Mapping[str, Mapping[str, str]], context: str) -> None:
     """Validate a filter's match block has valid fields and operators.
 
     Raises:
@@ -190,6 +215,7 @@ def validate_config(config: PipelineConfig) -> None:
 
     Raises:
         ValueError: If the config contains invalid keys, filters, or patterns.
+        TypeError: If a cleaning override match block is not a dict.
 
     """
     valid_top_keys = frozenset(
@@ -225,33 +251,30 @@ def validate_config(config: PipelineConfig) -> None:
             if "title" not in notify:
                 msg = f"{ctx}: notify block requires 'title'"
                 raise ValueError(msg)
-        if "llm_check" in filt and not isinstance(filt["llm_check"], str):
-            msg = f"{ctx}: 'llm_check' must be a string"
+        if "llm_check" in filt and not filt["llm_check"]:
+            msg = f"{ctx}: 'llm_check' must be a non-empty string"
             raise ValueError(msg)
 
     # Validate general_cleaning
-    gc = config.get("general_cleaning") or {}
-    for key, value in gc.items():
-        if key == "overrides":
-            if not isinstance(value, list):
-                msg = "general_cleaning.overrides must be a list"
-                raise ValueError(msg)
-            for oidx, override in enumerate(value):
-                octx = f"general_cleaning.overrides[{oidx}]"
-                if "match" not in override:
-                    msg = f"{octx}: 'match' is required"
-                    raise ValueError(msg)
-                validate_match_block(override["match"], octx)
-                for okey in override:
-                    if okey != "match" and okey not in VALID_CLEANING_KEYS:
-                        msg = f"{octx}: unknown key {okey!r}"
-                        raise ValueError(msg)
-        elif key not in VALID_CLEANING_KEYS:
+    gc = config.get("general_cleaning") or GeneralCleaningConfig()
+    for key in gc:
+        if key not in VALID_CLEANING_KEYS and key != "overrides":
             msg = f"general_cleaning: unknown key {key!r}"
             raise ValueError(msg)
-        elif not isinstance(value, bool):
-            msg = f"general_cleaning.{key}: must be a boolean"
+    for oidx, override in enumerate(gc.get("overrides") or []):
+        octx = f"general_cleaning.overrides[{oidx}]"
+        if "match" not in override:
+            msg = f"{octx}: 'match' is required"
             raise ValueError(msg)
+        match_val = override["match"]
+        if not isinstance(match_val, dict):
+            msg = f"{octx}: 'match' must be a dict"
+            raise TypeError(msg)
+        validate_match_block(match_val, octx)  # pyright: ignore[reportUnknownArgumentType] — validated inside
+        for okey in override:
+            if okey != "match" and okey not in VALID_CLEANING_KEYS:
+                msg = f"{octx}: unknown key {okey!r}"
+                raise ValueError(msg)
 
     # Validate text_removals
     for idx, removal in enumerate(config.get("text_removals") or []):
@@ -308,14 +331,12 @@ def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
             # (meaning everything match_b matches, match_a also matches)
             if _match_is_subset(subset=match_b, superset=match_a):
                 errors.append(
-                    f"filters[{i}] (skip, reason: {rule_a['reason']!r}) shadows "
-                    f"filters[{j}] (reason: {rule_b['reason']!r}) — "
-                    f"the later rule will never fire. Reorder or adjust match criteria.",
+                    f"filters[{i}] (skip, reason: {rule_a['reason']!r}) shadows filters[{j}] (reason: {rule_b['reason']!r}) — the later rule will never fire. Reorder or adjust match criteria.",
                 )
     return errors
 
 
-def _match_is_subset(subset: dict[str, dict[str, str]], superset: dict[str, dict[str, str]]) -> bool:
+def _match_is_subset(subset: Mapping[str, Mapping[str, str]], superset: Mapping[str, Mapping[str, str]]) -> bool:
     """Check if everything matched by 'subset' criteria is also matched by 'superset'.
 
     A superset match has fewer or equal constraints — so subset must contain
@@ -342,7 +363,7 @@ def _match_is_subset(subset: dict[str, dict[str, str]], superset: dict[str, dict
 # ---------------------------------------------------------------------------
 
 
-def evaluate_match(match_block: dict[str, dict[str, str]], metadata: dict[str, str]) -> bool:
+def evaluate_match(match_block: Mapping[str, Mapping[str, str]], metadata: dict[str, str]) -> bool:
     """Test whether a file's metadata satisfies a filter's match criteria.
 
     Returns:
@@ -371,7 +392,7 @@ def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: 
     full_prompt = f"{prompt_template}\n\nTitle: {title}\n\nContent:\n{content}"
     try:
         client = get_gemini_client()
-        response = client.models.generate_content(
+        response = client.models.generate_content(  # pyright: ignore[reportUnknownMemberType]
             model=LLM_MODEL,
             contents=full_prompt,
             config={
@@ -386,8 +407,8 @@ def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: 
         if response.text is None:
             logging.warning("Gemini returned no text for LLM check")
             return False
-        parsed = json.loads(response.text)
-        return bool(parsed.get("result", False))
+        parsed: dict[str, bool] = json.loads(response.text)  # pyright: ignore[reportAny]
+        return bool(parsed.get("result"))
     except Exception:
         logging.exception("LLM check failed")
         return False
@@ -433,17 +454,18 @@ def apply_general_cleaning(
         The cleaned text.
 
     """
-    gc_config = config.get("general_cleaning") or {}
-    overrides = gc_config.get("overrides") or []
+    gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
+    overrides: list[CleaningOverride] = gc_config.get("overrides") or []
 
     def is_enabled(key: str) -> bool:
         # Check per-source overrides first
         for override in overrides:
-            if evaluate_match(override["match"], metadata) and key in override:
+            match_val = override.get("match")
+            if isinstance(match_val, dict) and evaluate_match(match_val, metadata) and key in override:  # pyright: ignore[reportUnknownArgumentType]
                 return bool(override[key])
         # Then global config
         if key in gc_config:
-            return bool(gc_config[key])
+            return bool(gc_config[key])  # pyright: ignore[reportUnknownArgumentType]
         # All cleaning steps are enabled by default
         return True
 
@@ -607,7 +629,8 @@ def load_today_stats() -> dict[str, FileStats]:
     today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
     if stats_path.exists():
-        return json.loads(stats_path.read_text(encoding="utf-8"))
+        result: dict[str, FileStats] = json.loads(stats_path.read_text(encoding="utf-8"))  # pyright: ignore[reportAny]
+        return result
     return {}
 
 
@@ -736,7 +759,7 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         file_stats["filters_checked"].append(reason)
         file_stats["filters_matched"].append(reason)
 
-        if action == "notify":
+        if action == "notify" and "notify" in filt:
             notify_config = filt["notify"]
             send_gotify_notification(
                 title=notify_config["title"],

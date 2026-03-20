@@ -118,7 +118,7 @@ def generate_summary(text: str, title: str) -> str:
     )
     try:
         client = get_gemini_client()
-        response = client.models.generate_content(
+        response = client.models.generate_content(  # pyright: ignore[reportUnknownMemberType]
             model=SUMMARY_MODEL,
             contents=prompt,
         )
@@ -152,9 +152,9 @@ def apply_id3_tags(
     except ID3NoHeaderError:
         tags = ID3()
     if title:
-        tags.add(TIT2(encoding=3, text=title))
+        tags.add(TIT2(encoding=3, text=title))  # pyright: ignore[reportUnknownMemberType]
     if description:
-        tags.add(TT3(encoding=3, text=description))
+        tags.add(TT3(encoding=3, text=description))  # pyright: ignore[reportUnknownMemberType]
     if source_url:
-        tags.add(WXXX(encoding=3, desc="Source", url=source_url))
-    tags.save(mp3_path, v1=v1)
+        tags.add(WXXX(encoding=3, desc="Source", url=source_url))  # pyright: ignore[reportUnknownMemberType]
+    tags.save(mp3_path, v1=v1)  # pyright: ignore[reportUnknownMemberType]
