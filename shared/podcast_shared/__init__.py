@@ -23,6 +23,12 @@ _gemini_client: genai.Client | None = None
 
 
 def get_gemini_client() -> genai.Client:
+    """Return the singleton Gemini client, initializing on first call.
+
+    Returns:
+        The shared Gemini client instance.
+
+    """
     global _gemini_client  # noqa: PLW0603
     if _gemini_client is None:
         _gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -35,6 +41,7 @@ def get_gemini_client() -> genai.Client:
 
 
 def send_gotify_notification(title: str, message: str, priority: int = 6) -> None:
+    """Send a push notification via Gotify."""
     # Intentionally no error handling here. Gotify is the alerting mechanism --
     # if Gotify itself is down, logging that fact just goes to a log file nobody
     # watches. The alternative (wrapping in try/except + logging.error) gives a
@@ -55,6 +62,12 @@ def send_gotify_notification(title: str, message: str, priority: int = 6) -> Non
 
 
 def split_metadata(raw_text: str) -> tuple[dict[str, str], str]:
+    """Parse META_ headers from a text file into a metadata dict and content body.
+
+    Returns:
+        A (metadata, content) tuple.
+
+    """
     if not raw_text.startswith("META_"):
         return {}, raw_text
     logger.info("Parsing metadata header")
@@ -89,6 +102,12 @@ def split_metadata(raw_text: str) -> tuple[dict[str, str], str]:
 
 
 def generate_summary(text: str, title: str) -> str:
+    """Generate a 2-3 sentence article summary via Gemini.
+
+    Returns:
+        The summary text, or empty string on failure.
+
+    """
     if not text.strip():
         logger.info("Summary skipped: empty content")
         return ""
@@ -126,6 +145,7 @@ def apply_id3_tags(
     source_url: str,
     v1: int | None = 2,
 ) -> None:
+    """Write ID3 tags (title, description, source URL) to an MP3 file."""
     logger.info("Writing ID3 tags to MP3")
     try:
         tags = ID3(mp3_path)

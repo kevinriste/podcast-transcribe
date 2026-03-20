@@ -1,3 +1,5 @@
+"""Poll RSS feeds for new entries and write raw text files for the pipeline."""
+
 import logging
 import pathlib
 import re
@@ -20,6 +22,12 @@ feeds_file = "feeds.txt"
 
 
 def get_entry_link(entry: object) -> str:
+    """Extract the best URL from a feedparser entry.
+
+    Returns:
+        The entry URL, or empty string if none found.
+
+    """
     link = getattr(entry, "link", None)
     if link:
         return link
@@ -31,6 +39,7 @@ def get_entry_link(entry: object) -> str:
 
 
 def main() -> None:
+    """Check all RSS feeds for new entries and write raw text files."""
     feeds = pathlib.Path(feeds_file).read_text(encoding="utf-8").splitlines()
     for feed in feeds:
         try:

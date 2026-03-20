@@ -1,3 +1,5 @@
+"""Convert cleaned text files to MP3 podcast episodes via Google Cloud TTS."""
+
 import functools
 import logging
 import math
@@ -29,6 +31,12 @@ INTAKE_TYPE_LABELS = {
 def build_description(
     summary: str, title: str, source_url: str, source_kind: str, source_name: str = "", intake_type: str = ""
 ) -> str:
+    """Build an HTML description string for the MP3 ID3 tag.
+
+    Returns:
+        HTML-formatted description with summary, title, and source link.
+
+    """
     description_body = summary or "Summary unavailable."
     title_line = title or "Untitled"
     parts = [description_body, f"Title: {title_line}"]
@@ -44,6 +52,12 @@ def build_description(
 
 
 def to_base36(value: int) -> str:
+    """Convert a non-negative integer to a base-36 string.
+
+    Returns:
+        The base-36 representation.
+
+    """
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
     if value == 0:
         return "0"
@@ -55,12 +69,14 @@ def to_base36(value: int) -> str:
 
 
 def process_files() -> None:
+    """Process all cleaned text files in the input directory."""
     txt_files = sorted(pathlib.Path(input_dir).glob("*.txt"))
     for f in txt_files:
         text_to_speech(f)
 
 
 def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
+    """Synthesize a single text file into an MP3 with ID3 tags."""
     with pathlib.Path(incoming_filename).open("rb") as filename:
         logging.info("Synthesizing speech for %s", filename.name)
         name = pathlib.Path(filename.name).name.replace(".txt", "")

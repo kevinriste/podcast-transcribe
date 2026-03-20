@@ -1,3 +1,5 @@
+"""Fetch unseen Gmail messages and write raw text files for the pipeline."""
+
 import logging
 import os
 import pathlib
@@ -23,10 +25,22 @@ local_scraper_url = "http://localhost:3001/fetch"
 
 
 def normalize_text(value: str) -> str:
+    """Lowercase, strip, and collapse whitespace in a string.
+
+    Returns:
+        The normalized text.
+
+    """
     return " ".join(value.strip().lower().split())
 
 
 def unfold_header_value(value: str | None) -> str:
+    """Unfold RFC 2822 folded header values into a single line.
+
+    Returns:
+        The unfolded header string.
+
+    """
     if not value:
         return ""
     unfolded = re.sub(r"\r?\n[ \t]+", " ", value)
@@ -35,6 +49,12 @@ def unfold_header_value(value: str | None) -> str:
 
 
 def clean_substack_url(url: str) -> str:
+    """Strip tracking parameters from a Substack URL, keeping only IDs.
+
+    Returns:
+        The cleaned URL, or the original if cleaning fails.
+
+    """
     try:
         parsed = urlparse(url)
         if "substack.com" not in parsed.netloc or not parsed.query:
@@ -51,6 +71,12 @@ def clean_substack_url(url: str) -> str:
 
 
 def extract_links_from_email(msg: MailMessage) -> list[dict[str, str]]:
+    """Extract all unique hyperlinks from an email's HTML and plain text.
+
+    Returns:
+        Deduplicated list of {href, text} dicts.
+
+    """
     links = []
     if msg.html:
         logging.info("Parsing HTML to extract links")
@@ -72,6 +98,12 @@ def extract_links_from_email(msg: MailMessage) -> list[dict[str, str]]:
 
 
 def find_source_url(links: list[dict[str, str]], source_kind: str, subject: str) -> str:
+    """Find the best source URL from email links based on the newsletter platform.
+
+    Returns:
+        The source URL, or empty string if none found.
+
+    """
     subject_norm = normalize_text(subject)
     logging.info("Selecting source URL for %s email", source_kind)
     if source_kind == "beehiiv":
@@ -175,6 +207,7 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
 
 
 def main() -> None:
+    """Fetch unseen emails and route them through the intake pipeline."""
     with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         msgs = mailbox.fetch(AND(seen=False), mark_seen=False)
         for msg in msgs:

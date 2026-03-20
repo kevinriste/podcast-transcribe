@@ -60,6 +60,15 @@ VALID_CLEANING_KEYS = frozenset(CLEANING_STEPS)
 
 
 def parse_flags(flags_raw: str | list[str] | None) -> int:
+    """Convert YAML flag names to a combined re flags integer.
+
+    Returns:
+        Combined regex flags.
+
+    Raises:
+        ValueError: If an invalid flag name is provided.
+
+    """
     if flags_raw is None:
         return 0
     flag_list = [flags_raw] if isinstance(flags_raw, str) else flags_raw
@@ -78,6 +87,12 @@ def parse_flags(flags_raw: str | list[str] | None) -> int:
 
 
 def validate_match_block(match_block: dict, context: str) -> None:
+    """Validate a filter's match block has valid fields and operators.
+
+    Raises:
+        ValueError: If the match block contains invalid fields or operators.
+
+    """
     if not isinstance(match_block, dict) or not match_block:
         msg = f"{context}: 'match' must be a non-empty dict"
         raise ValueError(msg)
@@ -96,6 +111,12 @@ def validate_match_block(match_block: dict, context: str) -> None:
 
 
 def validate_config(config: dict) -> None:
+    """Validate the full filters.yaml configuration structure.
+
+    Raises:
+        ValueError: If the config contains invalid keys, filters, or patterns.
+
+    """
     valid_top_keys = frozenset(
         {"filters", "general_cleaning", "text_removals", "text_replacements"},
     )
@@ -198,6 +219,7 @@ def validate_rule_ordering(filters: list[dict]) -> list[str]:
 
     Returns:
         List of error messages (empty if no problems).
+
     """
     errors: list[str] = []
     for i, rule_a in enumerate(filters):
@@ -226,6 +248,7 @@ def _match_is_subset(subset: dict, superset: dict) -> bool:
 
     Returns:
         True if subset's match criteria are a subset of superset's.
+
     """
     for field, operators in superset.items():
         if field not in subset:
@@ -245,6 +268,12 @@ def _match_is_subset(subset: dict, superset: dict) -> bool:
 
 
 def evaluate_match(match_block: dict, metadata: dict[str, str]) -> bool:
+    """Test whether a file's metadata satisfies a filter's match criteria.
+
+    Returns:
+        True if all match conditions are satisfied.
+
+    """
     for field, operators in match_block.items():
         meta_value = metadata.get(field, "").lower()
         for op, target in operators.items():
@@ -257,6 +286,12 @@ def evaluate_match(match_block: dict, metadata: dict[str, str]) -> bool:
 
 
 def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: str) -> bool:
+    """Run a Gemini LLM check and return whether the content matches.
+
+    Returns:
+        True if the LLM confirms the check, False on failure or negative result.
+
+    """
     title = metadata.get("title", "")
     full_prompt = f"{prompt_template}\n\nTitle: {title}\n\nContent:\n{content}"
     try:
@@ -289,12 +324,24 @@ def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: 
 
 
 def clean_beehiiv_to_plaintext(text: str) -> str:
+    """Convert Beehiiv markdown content to plain text via HTML.
+
+    Returns:
+        Plain text extracted from the rendered HTML.
+
+    """
     html = markdown.markdown(text)
     soup = BeautifulSoup(html, features="html.parser")
     return soup.get_text()
 
 
 def clean_beehiiv_emphasis(text: str) -> str:
+    """Strip leftover Markdown emphasis markers from Beehiiv text.
+
+    Returns:
+        Text with underscored emphasis removed.
+
+    """
     without_double = re.sub(r"__([^_]+)__", r"\1", text)
     return re.sub(r"_([^_]+)_", r"\1", without_double)
 
@@ -305,6 +352,12 @@ def apply_general_cleaning(
     config: dict,
     stats: dict[str, dict],
 ) -> str:
+    """Apply all built-in cleaning steps (URL removal, whitespace, etc.).
+
+    Returns:
+        The cleaned text.
+
+    """
     gc_config = config.get("general_cleaning") or {}
     overrides = gc_config.get("overrides") or []
 
@@ -426,6 +479,12 @@ def apply_general_cleaning(
 
 
 def apply_text_removals(text: str, config: dict, stats: dict[str, dict]) -> str:
+    """Apply YAML-configured regex removals to text content.
+
+    Returns:
+        Text with matched patterns removed.
+
+    """
     result: str = text
     for removal in config.get("text_removals") or []:
         pattern = removal["pattern"]
@@ -439,6 +498,12 @@ def apply_text_removals(text: str, config: dict, stats: dict[str, dict]) -> str:
 
 
 def apply_text_replacements(text: str, config: dict, stats: dict[str, dict]) -> str:
+    """Apply YAML-configured regex replacements to text content.
+
+    Returns:
+        Text with matched patterns replaced.
+
+    """
     result: str = text
     for repl in config.get("text_replacements") or []:
         pattern = repl["pattern"]
@@ -458,6 +523,12 @@ def apply_text_replacements(text: str, config: dict, stats: dict[str, dict]) -> 
 
 
 def load_today_stats() -> dict:
+    """Load today's stats JSON file, or return an empty dict.
+
+    Returns:
+        The stats dict for today.
+
+    """
     today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
     if stats_path.exists():
@@ -466,6 +537,7 @@ def load_today_stats() -> dict:
 
 
 def save_stats(stats: dict) -> None:
+    """Write the stats dict to today's JSON file."""
     today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
     stats_path.parent.mkdir(parents=True, exist_ok=True)
@@ -476,6 +548,7 @@ def save_stats(stats: dict) -> None:
 
 
 def rotate_stats() -> None:
+    """Delete stats files older than the retention period."""
     cutoff = datetime.now(tz=UTC) - timedelta(days=STATS_RETENTION_DAYS)
     stats_path = pathlib.Path(STATS_DIR)
     if not stats_path.exists():
@@ -501,6 +574,7 @@ def write_metadata_and_content(
     metadata: dict[str, str],
     content: str,
 ) -> None:
+    """Write a metadata-prefixed text file."""
     meta_lines = [f"META_{key.upper()}: {value}" for key, value in metadata.items()]
     meta_block = "\n".join(meta_lines)
     filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -516,6 +590,12 @@ def write_metadata_and_content(
 
 
 def load_config() -> dict:
+    """Load and validate filters.yaml, returning an empty dict if absent.
+
+    Returns:
+        The parsed and validated config dict.
+
+    """
     config_path = pathlib.Path(CONFIG_FILE)
     if not config_path.exists():
         logging.info("No filters.yaml found; using defaults (no filters, no removals)")
@@ -527,6 +607,7 @@ def load_config() -> dict:
 
 
 def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
+    """Filter, clean, and write a single raw text file."""
     filename = filepath.name
     logging.info("Processing: %s", filename)
 
@@ -728,6 +809,7 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
 
 
 def process_files() -> None:
+    """Process all raw text files: filter, clean, and output for TTS."""
     # Ensure directories exist
     for dir_path in (RAW_INPUT_DIR, RAW_ARCHIVE_DIR, CLEANED_OUTPUT_DIR, CLEANED_ARCHIVE_DIR, FILTERED_DIR, STATS_DIR):
         pathlib.Path(dir_path).mkdir(parents=True, exist_ok=True)
