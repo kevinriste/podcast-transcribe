@@ -278,7 +278,7 @@ def main() -> None:
                     logging.info("Writing metadata block to text input")
                     pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + webpage_text, encoding="utf-8")
                 flags = MailMessageFlags.SEEN
-                mailbox.flag(msg.uid, flags, True)
+                mailbox.flag(msg.uid, flags, value=True)
             except Exception:
                 logging.exception("Error processing email from %s: %s", msg.from_values.email, msg.subject)
                 send_gotify_notification(
