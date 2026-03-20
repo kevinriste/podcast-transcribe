@@ -45,7 +45,7 @@ def clean_substack_url(url):
             return url
         query = urlencode({"publication_id": publication_id, "post_id": post_id})
         return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", query, ""))
-    except Exception:
+    except (ValueError, KeyError, IndexError):
         return url
 
 
