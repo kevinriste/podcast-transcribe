@@ -146,8 +146,8 @@ def fetch_and_process_html(url, request_body=None):
                 # Get rendered HTML content
                 html_content = page.content()
 
-            except Exception as e:
-                logging.exception("Error occurred while fetching %s: %s", url, e)
+            except Exception:
+                logging.exception("Error occurred while fetching %s", url)
                 html_content = None
 
             finally:
@@ -168,8 +168,8 @@ def fetch_and_process_html(url, request_body=None):
 
         return html_content_parsed_for_title, content_text
 
-    except Exception as e:
-        logging.exception("Error occurred: %s", e)
+    except Exception:
+        logging.exception("Error occurred")
         return None, None
 
 

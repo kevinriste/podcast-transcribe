@@ -274,8 +274,8 @@ def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: 
             return False
         parsed = json.loads(response.text)
         return bool(parsed.get("result", False))
-    except Exception as exc:
-        logging.exception("LLM check failed: %s", exc)
+    except Exception:
+        logging.exception("LLM check failed")
         return False
 
 
