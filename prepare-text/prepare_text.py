@@ -189,7 +189,7 @@ def validate_config(config: dict) -> None:
             raise ValueError(msg)
         rflags = parse_flags(removal.get("flags"))
         try:
-            re.compile(removal["pattern"], rflags)
+            _ = re.compile(removal["pattern"], rflags)
         except re.error as exc:
             msg = f"{rctx}: invalid regex: {exc}"
             raise ValueError(msg) from exc
@@ -208,7 +208,7 @@ def validate_config(config: dict) -> None:
             raise ValueError(msg)
         pflags = parse_flags(repl.get("flags"))
         try:
-            re.compile(repl["pattern"], pflags)
+            _ = re.compile(repl["pattern"], pflags)
         except re.error as exc:
             msg = f"{pctx}: invalid regex: {exc}"
             raise ValueError(msg) from exc
@@ -541,7 +541,7 @@ def save_stats(stats: dict) -> None:
     today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
     stats_path.parent.mkdir(parents=True, exist_ok=True)
-    stats_path.write_text(
+    _ = stats_path.write_text(
         json.dumps(stats, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
@@ -578,7 +578,7 @@ def write_metadata_and_content(
     meta_lines = [f"META_{key.upper()}: {value}" for key, value in metadata.items()]
     meta_block = "\n".join(meta_lines)
     filepath.parent.mkdir(parents=True, exist_ok=True)
-    filepath.write_text(
+    _ = filepath.write_text(
         meta_block + "\n\n" + content,
         encoding="utf-8",
     )
@@ -684,7 +684,7 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
         # Archive raw
         raw_archive_path = pathlib.Path(RAW_ARCHIVE_DIR) / filename
         raw_archive_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(filepath), str(raw_archive_path))
+        _ = shutil.copy2(str(filepath), str(raw_archive_path))
 
         file_stats["filtered_archive"] = str(filtered_path)
         file_stats["raw_archive"] = str(raw_archive_path)
@@ -726,7 +726,7 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
 
         raw_archive_path_empty = pathlib.Path(RAW_ARCHIVE_DIR) / filename
         raw_archive_path_empty.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(filepath), str(raw_archive_path_empty))
+        _ = shutil.copy2(str(filepath), str(raw_archive_path_empty))
 
         file_stats["filtered_archive"] = str(filtered_path_empty)
         file_stats["raw_archive"] = str(raw_archive_path_empty)
@@ -761,7 +761,7 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
 
         raw_archive_path_big = pathlib.Path(RAW_ARCHIVE_DIR) / filename
         raw_archive_path_big.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(filepath), str(raw_archive_path_big))
+        _ = shutil.copy2(str(filepath), str(raw_archive_path_big))
 
         file_stats["filtered_archive"] = str(filtered_path_big)
         file_stats["raw_archive"] = str(raw_archive_path_big)
@@ -785,12 +785,12 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
     # Archive raw
     raw_archive_final = pathlib.Path(RAW_ARCHIVE_DIR) / filename
     raw_archive_final.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(filepath), str(raw_archive_final))
+    _ = shutil.copy2(str(filepath), str(raw_archive_final))
 
     # Archive cleaned
     cleaned_archive = pathlib.Path(CLEANED_ARCHIVE_DIR) / filename
     cleaned_archive.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(str(cleaned_path), str(cleaned_archive))
+    _ = shutil.copy2(str(cleaned_path), str(cleaned_archive))
 
     file_stats["raw_archive"] = str(raw_archive_final)
     file_stats["cleaned_archive"] = str(cleaned_archive)

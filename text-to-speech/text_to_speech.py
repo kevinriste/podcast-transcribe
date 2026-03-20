@@ -151,7 +151,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
                     },
                 )
                 mp3_filename = f"{temp_output_dir}/{uuid.uuid4()}.mp3"
-                pathlib.Path(mp3_filename).write_bytes(response.audio_content)
+                _ = pathlib.Path(mp3_filename).write_bytes(response.audio_content)
                 logging.info('Audio content written to file "%s"', mp3_filename)
                 mp3files.append(mp3_filename)
 

@@ -75,7 +75,7 @@ def main() -> None:
                             date_string,
                         )
 
-                        pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
+                        _ = pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
                     else:
                         logging.info(
                             "%s-%s was more than 7 days old",
@@ -87,7 +87,7 @@ def main() -> None:
                     continue
 
             if enable_diagnosis:
-                pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
+                _ = pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
 
             feed_title_raw = parsed_feed.feed.title
             feed_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", feed_title_raw)
@@ -97,7 +97,7 @@ def main() -> None:
             try:
                 most_recent_guid = pathlib.Path(guid_filename).read_text(encoding="utf-8")
                 if enable_diagnosis:
-                    shutil.copy2(
+                    _ = shutil.copy2(
                         guid_filename,
                         f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-before.txt",
                     )
@@ -153,13 +153,13 @@ def main() -> None:
                     ],
                 )
                 logging.info("Writing raw metadata and text to text input")
-                pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
+                _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
                 pathlib.Path(guid_dir).mkdir(parents=True, exist_ok=True)
-                pathlib.Path(guid_filename).write_text(parsed_feed_entry.id, encoding="utf-8")
+                _ = pathlib.Path(guid_filename).write_text(parsed_feed_entry.id, encoding="utf-8")
                 # Copy new version of guids txt file
                 date_string = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
                 if enable_diagnosis:
-                    shutil.copy2(
+                    _ = shutil.copy2(
                         guid_filename,
                         f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
                     )

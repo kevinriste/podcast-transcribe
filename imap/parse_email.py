@@ -167,14 +167,14 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
                         "Making GET request to %s with url query parameter",
                         url,
                     )
-                    page.goto(
+                    _ = page.goto(
                         f"{url}?url={request_body['url']}",
                         wait_until="networkidle",
                         timeout=180000,
                     )
                 else:
                     logging.info("Making GET request to %s", url)
-                    page.goto(url, wait_until="networkidle", timeout=180000)
+                    _ = page.goto(url, wait_until="networkidle", timeout=180000)
 
                 # Get rendered HTML content
                 html_content = page.content()
@@ -250,7 +250,7 @@ def main() -> None:
                         ],
                     )
                     logging.info("Writing raw metadata and text to text input")
-                    pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + email_text_raw, encoding="utf-8")
+                    _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + email_text_raw, encoding="utf-8")
                 elif subject_for_filter_lower == "youtube":
                     email_text_raw = msg.text
                     youtube_url = re.sub(r"[^\S]+", "", email_text_raw)
@@ -313,9 +313,9 @@ def main() -> None:
                         ],
                     )
                     logging.info("Writing metadata block to text input")
-                    pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + webpage_text, encoding="utf-8")
+                    _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + webpage_text, encoding="utf-8")
                 flags = MailMessageFlags.SEEN
-                mailbox.flag(msg.uid, flags, value=True)
+                _ = mailbox.flag(msg.uid, flags, value=True)
             except Exception:
                 from_email_for_error = msg.from_values.email if msg.from_values else "unknown"
                 logging.exception("Error processing email from %s: %s", from_email_for_error, msg.subject)

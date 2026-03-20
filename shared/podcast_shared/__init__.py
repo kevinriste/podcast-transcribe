@@ -53,7 +53,7 @@ def send_gotify_notification(title: str, message: str, priority: int = 6) -> Non
         return
     gotify_url = f"{gotify_server}/message?token={gotify_token}"
     data = {"title": title, "message": message, "priority": priority}
-    requests.post(gotify_url, data=data, timeout=30)
+    _ = requests.post(gotify_url, data=data, timeout=30)
 
 
 # ---------------------------------------------------------------------------
