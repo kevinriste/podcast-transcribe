@@ -196,7 +196,8 @@ def validate_config(config: dict) -> None:
 def validate_rule_ordering(filters: list[dict]) -> list[str]:
     """Check for skip rules that shadow later rules with overlapping match criteria.
 
-    Returns list of error messages (empty if no problems).
+    Returns:
+        List of error messages (empty if no problems).
     """
     errors: list[str] = []
     for i, rule_a in enumerate(filters):
@@ -222,6 +223,9 @@ def _match_is_subset(subset: dict, superset: dict) -> bool:
 
     A superset match has fewer or equal constraints — so subset must contain
     all fields from superset with compatible operators.
+
+    Returns:
+        True if subset's match criteria are a subset of superset's.
     """
     for field, operators in superset.items():
         if field not in subset:
