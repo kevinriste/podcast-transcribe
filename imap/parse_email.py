@@ -183,7 +183,7 @@ def main() -> None:
                 from_name_raw = unfold_header_value(msg.from_values.name)
                 from_email = msg.from_values.email or ""
                 from_name_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", from_name_raw)
-                from_prefix_for_filename = from_name_for_filename + "- " if from_name_for_filename != "" else ""
+                from_prefix_for_filename = from_name_for_filename + "- " if from_name_for_filename else ""
                 subject_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", subject_raw)
                 subject_for_filter_lower = subject_for_filename.lower()
                 if subject_for_filter_lower not in {"link", "youtube"}:
