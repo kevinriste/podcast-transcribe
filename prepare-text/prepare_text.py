@@ -11,7 +11,7 @@ import logging
 import pathlib
 import re
 import shutil
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import markdown
 import yaml
@@ -454,7 +454,7 @@ def apply_text_replacements(text: str, config: dict, stats: dict[str, dict]) -> 
 
 
 def load_today_stats() -> dict:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
     if stats_path.exists():
         return json.loads(stats_path.read_text(encoding="utf-8"))
@@ -462,7 +462,7 @@ def load_today_stats() -> dict:
 
 
 def save_stats(stats: dict) -> None:
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
     stats_path.parent.mkdir(parents=True, exist_ok=True)
     stats_path.write_text(
@@ -472,13 +472,13 @@ def save_stats(stats: dict) -> None:
 
 
 def rotate_stats() -> None:
-    cutoff = datetime.now() - timedelta(days=STATS_RETENTION_DAYS)
+    cutoff = datetime.now(tz=UTC) - timedelta(days=STATS_RETENTION_DAYS)
     stats_path = pathlib.Path(STATS_DIR)
     if not stats_path.exists():
         return
     for stats_file in stats_path.glob("*.json"):
         try:
-            file_date = datetime.strptime(stats_file.stem, "%Y-%m-%d")
+            file_date = datetime.strptime(stats_file.stem, "%Y-%m-%d").replace(tzinfo=UTC)
             if file_date < cutoff:
                 stats_file.unlink()
                 logging.info("Rotated old stats file: %s", stats_file.name)
@@ -530,7 +530,7 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
     raw_text = filepath.read_text(encoding="utf-8")
     metadata: dict[str, str]
     metadata, content_raw = split_metadata(raw_text)
-    timestamp = datetime.now().isoformat(timespec="seconds")
+    timestamp = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
     # Initialize stats entry
     file_stats: dict = {

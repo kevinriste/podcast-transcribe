@@ -5,7 +5,7 @@ import operator
 import pathlib
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from google.cloud import texttospeech
 from podcast_shared import apply_id3_tags, generate_summary, split_metadata
@@ -143,7 +143,7 @@ def text_to_speech(incoming_filename) -> None:
             logging.info("Stitching together %d mp3 files for %s", len(segments), name)
             audio = functools.reduce(operator.add, segments)
 
-            current_datetime = datetime.now().strftime("%Y%m%d")
+            current_datetime = datetime.now(tz=UTC).strftime("%Y%m%d")
             # Filename format: "YYYYMMDD-HHMMSS-<rest>"
             date_match = re.match(r"^(\d{8}-\d{6})-(.+)$", name)
             if date_match:
@@ -164,7 +164,7 @@ def text_to_speech(incoming_filename) -> None:
             file_title = pathlib.Path(output_filename).stem
             file_title = re.sub(r"-\d{8}$", "", file_title)
             if meta_from and meta_title:
-                now = datetime.now()
+                now = datetime.now(tz=UTC)
                 base36_width = 6 if now.year <= 2037 else 7
                 unix_seconds_base36 = to_base36(int(now.timestamp())).zfill(
                     base36_width,

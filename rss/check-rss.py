@@ -2,7 +2,7 @@ import logging
 import pathlib
 import re
 import shutil
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import feedparser
 import msgspec
@@ -39,7 +39,7 @@ def main() -> None:
                 logging.warning("Feed %s has parsing issues: %s", feed, parsed_feed.bozo_exception)
 
             # Prepare shared variables for file logging
-            now = datetime.now()
+            now = datetime.now(tz=UTC)
             date_string = now.strftime("%Y%m%d-%H%M%S")
             clean_feed_name = re.sub(r"[^A-Za-z0-9 ]+", "", feed)
             diagnosis_dir = "./diagnosis"
@@ -148,7 +148,7 @@ def main() -> None:
                 pathlib.Path(guid_dir).mkdir(parents=True, exist_ok=True)
                 pathlib.Path(guid_filename).write_text(parsed_feed_entry.id, encoding="utf-8")
                 # Copy new version of guids txt file
-                date_string = datetime.now().strftime("%Y%m%d-%H%M%S")
+                date_string = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
                 if enable_diagnosis:
                     shutil.copy(
                         guid_filename,
