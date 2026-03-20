@@ -634,6 +634,31 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
     cleaned_text = apply_text_replacements(cleaned_text, config, replacement_stats)
     file_stats["text_replacements"] = replacement_stats
 
+    # Check empty (before adding header/footer, which would mask empty content)
+    if not cleaned_text.strip():
+        empty_reason = "Content empty after cleaning"
+        filtered_metadata_empty = {**metadata, "filtered_reason": empty_reason}
+        filtered_path_empty = pathlib.Path(FILTERED_DIR) / filename
+        write_metadata_and_content(filtered_path_empty, filtered_metadata_empty, "")
+
+        raw_archive_path_empty = pathlib.Path(RAW_ARCHIVE_DIR) / filename
+        raw_archive_path_empty.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(filepath), str(raw_archive_path_empty))
+
+        file_stats["filtered_archive"] = str(filtered_path_empty)
+        file_stats["raw_archive"] = str(raw_archive_path_empty)
+        file_stats["outcome"] = "filtered_empty"
+        file_stats["chars_after"] = 0
+        all_stats[timestamp] = file_stats
+
+        filepath.unlink()
+        logging.info("Filtered (empty after cleaning): %s", filename)
+        send_gotify_notification(
+            "Skipping empty text-to-speech content",
+            f"{filename}: empty after cleaning.",
+        )
+        return
+
     # Prepend and append author + title
     from_name = metadata.get("from", "").strip()
     title = metadata.get("title", "").strip()
@@ -673,31 +698,6 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
         send_gotify_notification(
             "Skipping large text-to-speech content",
             f"{filename}: {len(cleaned_text)} chars exceeds {CHARACTER_LIMIT} limit.",
-        )
-        return
-
-    # Check empty
-    if not cleaned_text.strip():
-        empty_reason = "Content empty after cleaning"
-        filtered_metadata_empty = {**metadata, "filtered_reason": empty_reason}
-        filtered_path_empty = pathlib.Path(FILTERED_DIR) / filename
-        write_metadata_and_content(filtered_path_empty, filtered_metadata_empty, "")
-
-        raw_archive_path_empty = pathlib.Path(RAW_ARCHIVE_DIR) / filename
-        raw_archive_path_empty.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(filepath), str(raw_archive_path_empty))
-
-        file_stats["filtered_archive"] = str(filtered_path_empty)
-        file_stats["raw_archive"] = str(raw_archive_path_empty)
-        file_stats["outcome"] = "filtered_empty"
-        file_stats["chars_after"] = 0
-        all_stats[timestamp] = file_stats
-
-        filepath.unlink()
-        logging.info("Filtered (empty after cleaning): %s", filename)
-        send_gotify_notification(
-            "Skipping empty text-to-speech content",
-            f"{filename}: empty after cleaning.",
         )
         return
 
