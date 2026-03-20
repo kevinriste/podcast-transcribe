@@ -4,7 +4,11 @@ import logging
 import os
 import pathlib
 import re
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+if TYPE_CHECKING:
+    from yt_dlp import _Params  # pyright: ignore[reportPrivateUsage]
 
 import yt_dlp
 from bs4 import BeautifulSoup
@@ -277,7 +281,7 @@ def main() -> None:
                     email_text_raw = msg.text
                     youtube_url = re.sub(r"[^\S]+", "", email_text_raw)
                     logging.info("fetching youtube audio: %s", youtube_url)
-                    ydl_opts = {
+                    ydl_opts: _Params = {
                         "format": "bestaudio[protocol!=m3u8][protocol!=m3u8_native]/bestaudio/best",
                         "extractor_args": {"youtube": {"player_client": ["android"]}},
                         "fragment_retries": 10,
@@ -291,7 +295,7 @@ def main() -> None:
                         ],
                         "outtmpl": "../dropcaster-docker/audio/%(uploader)s- %(title)s.%(ext)s",
                     }
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # pyright: ignore[reportArgumentType]
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(youtube_url, download=True)
                         base_filename: str = str(ydl.prepare_filename(info))
                         mp3_filename = str(pathlib.Path(base_filename).with_suffix(".mp3"))
