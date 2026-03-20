@@ -59,10 +59,7 @@ def extract_links_from_email(msg):
             links.append({"href": anchor["href"], "text": text})
     if msg.text:
         logging.info("Parsing plain text to extract links")
-        links.extend(
-            {"href": url, "text": ""}
-            for url in re.findall(r"https?://[^\s)<>\"']+", msg.text)
-        )
+        links.extend({"href": url, "text": ""} for url in re.findall(r"https?://[^\s)<>\"']+", msg.text))
     deduped = []
     seen = set()
     for link in links:
@@ -83,17 +80,11 @@ def find_source_url(links, source_kind, subject):
                 return link["href"]
     if source_kind == "substack":
         for link in links:
-            if (
-                normalize_text(link["text"]) == subject_norm
-                and "substack.com/app-link/post" in link["href"]
-            ):
+            if normalize_text(link["text"]) == subject_norm and "substack.com/app-link/post" in link["href"]:
                 logging.info("Found Substack post link by title match")
                 return clean_substack_url(link["href"])
         for link in links:
-            if (
-                normalize_text(link["text"]) == subject_norm
-                and "open.substack.com" in link["href"]
-            ):
+            if normalize_text(link["text"]) == subject_norm and "open.substack.com" in link["href"]:
                 logging.info("Found Substack open link by title match")
                 return link["href"]
         for link in links:
@@ -172,10 +163,7 @@ def fetch_and_process_html(url, request_body=None):
         )
         webpage_text = extract(html_content, include_comments=False, favor_recall=True)
         content_text = (
-            (html_content_parsed_for_title.as_dict().get("title") or "")
-            + ".\n"
-            + "\n"
-            + (webpage_text or "")
+            (html_content_parsed_for_title.as_dict().get("title") or "") + ".\n" + "\n" + (webpage_text or "")
         )
 
         return html_content_parsed_for_title, content_text
@@ -195,13 +183,13 @@ def main() -> None:
                 from_name_raw = unfold_header_value(msg.from_values.name)
                 from_email = msg.from_values.email or ""
                 from_name_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", from_name_raw)
-                from_prefix_for_filename = (
-                    from_name_for_filename + "- " if from_name_for_filename != "" else ""
-                )
+                from_prefix_for_filename = from_name_for_filename + "- " if from_name_for_filename != "" else ""
                 subject_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", subject_raw)
                 subject_for_filter_lower = subject_for_filename.lower()
                 if subject_for_filter_lower not in {"link", "youtube"}:
-                    output_filename = f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
+                    output_filename = (
+                        f"{output_folder}/{date_stamp}-{from_prefix_for_filename}{subject_for_filename}.txt"
+                    )
                     logging.info("parsing email: %s", output_filename)
                     email_text_raw = msg.text
                     has_beehiiv = bool(msg.headers.get("x-beehiiv-ids"))
@@ -255,7 +243,9 @@ def main() -> None:
                         description_body = summary or "Summary unavailable."
                         description = f'{video_title}<br/><br/>{description_body}<br/><br/>Source: <a href="{video_url}">{video_url}</a>'
                         if pathlib.Path(mp3_filename).exists():
-                            apply_id3_tags(mp3_filename, title=video_title, description=description, source_url=video_url, v1=1)
+                            apply_id3_tags(
+                                mp3_filename, title=video_title, description=description, source_url=video_url, v1=1
+                            )
                         else:
                             logging.error("Expected MP3 not found: %s", mp3_filename)
                 else:
@@ -273,10 +263,7 @@ def main() -> None:
                             original_url,
                         )
                         continue
-                    raw_title = (
-                        html_content_parsed_for_title.as_dict().get("title")
-                        or "No title available"
-                    )
+                    raw_title = html_content_parsed_for_title.as_dict().get("title") or "No title available"
                     title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", raw_title)
                     output_filename = f"{output_folder}/{date_stamp}-{title_for_filename}.txt"
                     metadata_block = "\n".join(

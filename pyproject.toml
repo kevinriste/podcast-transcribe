@@ -1,5 +1,5 @@
 [tool.ruff]
-line-length = 200
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -19,7 +19,12 @@ ignore = [
     "PLR1702",  # too many nested blocks
     "PLR2004",  # magic value comparison
     "TRY300",   # try-consider-else
+    "COM812",   # trailing comma — conflicts with ruff format
+    "E501",     # line too long — ruff format handles this
 ]
+
+[tool.ruff.format]
+skip-magic-trailing-comma = false
 
 [tool.basedpyright]
 typeCheckingMode = "all"

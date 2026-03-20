@@ -72,9 +72,7 @@ def split_metadata(raw_text: str) -> tuple[dict[str, str], str]:
             metadata[current_key] = value.strip()
             continue
         if line.startswith((" ", "\t")) and current_key:
-            metadata[current_key] = (
-                f"{metadata.get(current_key, '')} {line.strip()}".strip()
-            )
+            metadata[current_key] = f"{metadata.get(current_key, '')} {line.strip()}".strip()
             continue
         if not line.strip():
             content_start = idx + 1

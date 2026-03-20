@@ -97,28 +97,21 @@ def text_to_speech(incoming_filename) -> None:
             )
             while next_text_starter_position < len(content_text):
                 counter += 1
-                first_whitespace_after_min_step_size_search = (
-                    compiled_regex_for_first_whitespace.search(
-                        content_text,
-                        next_text_starter_position + min_step_size,
-                        next_text_starter_position + max_step_size,
-                    )
+                first_whitespace_after_min_step_size_search = compiled_regex_for_first_whitespace.search(
+                    content_text,
+                    next_text_starter_position + min_step_size,
+                    next_text_starter_position + max_step_size,
                 )
                 if first_whitespace_after_min_step_size_search is not None:
-                    first_whitespace_after_min_step_size = (
-                        first_whitespace_after_min_step_size_search.end()
-                    )
+                    first_whitespace_after_min_step_size = first_whitespace_after_min_step_size_search.end()
                 else:
-                    first_whitespace_after_min_step_size = (
-                        next_text_starter_position + max_step_size
-                    )
+                    first_whitespace_after_min_step_size = next_text_starter_position + max_step_size
                     if first_whitespace_after_min_step_size < len(content_text):
                         logging.info(
-                            "max_step_size met before end of %s", filename.name,
+                            "max_step_size met before end of %s",
+                            filename.name,
                         )
-                text_to_process = content_text[
-                    next_text_starter_position:first_whitespace_after_min_step_size
-                ]
+                text_to_process = content_text[next_text_starter_position:first_whitespace_after_min_step_size]
                 next_text_starter_position = first_whitespace_after_min_step_size
 
                 synthesis_input = texttospeech.SynthesisInput(text=text_to_process)

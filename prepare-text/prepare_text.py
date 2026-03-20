@@ -497,9 +497,7 @@ def write_metadata_and_content(
     metadata: dict[str, str],
     content: str,
 ) -> None:
-    meta_lines = [
-        f"META_{key.upper()}: {value}" for key, value in metadata.items()
-    ]
+    meta_lines = [f"META_{key.upper()}: {value}" for key, value in metadata.items()]
     meta_block = "\n".join(meta_lines)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     filepath.write_text(
@@ -662,15 +660,8 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
     # Prepend and append author + title
     from_name = metadata.get("from", "").strip()
     title = metadata.get("title", "").strip()
-    header = (
-        (f"{from_name}.\n" if from_name else "")
-        + (f"{title}.\n" if title else "")
-    )
-    footer = (
-        "\n\n"
-        + (f"{from_name}.\n" if from_name else "")
-        + (f"{title}.\n" if title else "")
-    )
+    header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
+    footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
     if header:
         cleaned_text = header + "\n" + cleaned_text
     if from_name or title:
@@ -773,9 +764,7 @@ def process_files() -> None:
         if shadowed_matches:
             raw_text_check = txt_file.read_text(encoding="utf-8")
             meta_check = split_metadata(raw_text_check)[0]
-            is_shadowed = any(
-                evaluate_match(match, meta_check) for match in shadowed_matches
-            )
+            is_shadowed = any(evaluate_match(match, meta_check) for match in shadowed_matches)
             if is_shadowed:
                 logging.warning(
                     "Skipping %s due to rule ordering conflict (left in raw)",

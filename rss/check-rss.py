@@ -57,15 +57,9 @@ def main() -> None:
                 )
                 max_timedelta_since_feed_last_updated = timedelta(days=7)
                 timedelta_since_feed_last_updated = now - parsed_feed_updated_date
-                if (
-                    timedelta_since_feed_last_updated
-                    > max_timedelta_since_feed_last_updated
-                ):
+                if timedelta_since_feed_last_updated > max_timedelta_since_feed_last_updated:
                     error_threshold_timedelta_since_feed_last_updated = timedelta(days=30)
-                    if (
-                        timedelta_since_feed_last_updated
-                        > error_threshold_timedelta_since_feed_last_updated
-                    ):
+                    if timedelta_since_feed_last_updated > error_threshold_timedelta_since_feed_last_updated:
                         logging.error(
                             "Error: %s-%s was more than 30 days old",
                             clean_feed_name,
@@ -88,9 +82,7 @@ def main() -> None:
 
             feed_title_raw = parsed_feed.feed.title
             feed_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", feed_title_raw)
-            feed_prefix_for_filename = (
-                feed_title_for_filename + "- " if feed_title_for_filename else ""
-            )
+            feed_prefix_for_filename = feed_title_for_filename + "- " if feed_title_for_filename else ""
             guid_dir = "./feed-guids"
             guid_filename = f"{guid_dir}/{feed_title_for_filename}.txt"
             try:
@@ -102,9 +94,7 @@ def main() -> None:
                     )
             except FileNotFoundError:
                 most_recent_guid = None
-            parsed_feed_entry_guids = [
-                parsed_feed_entry.id for parsed_feed_entry in parsed_feed.entries
-            ]
+            parsed_feed_entry_guids = [parsed_feed_entry.id for parsed_feed_entry in parsed_feed.entries]
             if most_recent_guid is None and feed == bill_simmons_feed:
                 if len(parsed_feed_entry_guids) >= 5:
                     most_recent_guid = parsed_feed_entry_guids[4]
@@ -116,9 +106,7 @@ def main() -> None:
                 most_recent_guid_index = None
 
             # Get list of RSS items that haven't been processed, process them from oldest to newest
-            feed_entries_before_most_recently_processed = parsed_feed.entries[
-                :most_recent_guid_index
-            ][::-1]
+            feed_entries_before_most_recently_processed = parsed_feed.entries[:most_recent_guid_index][::-1]
 
             if len(feed_entries_before_most_recently_processed) > 0:
                 logging.info(
@@ -140,9 +128,7 @@ def main() -> None:
 
                 if feed == bill_simmons_feed:
                     entry_description_raw = (
-                        parsed_feed_entry.get("summary")
-                        or parsed_feed_entry.get("description")
-                        or ""
+                        parsed_feed_entry.get("summary") or parsed_feed_entry.get("description") or ""
                     )
                     content_text = str(entry_description_raw)
                 else:
