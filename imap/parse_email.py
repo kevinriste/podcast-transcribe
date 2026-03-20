@@ -77,18 +77,18 @@ def extract_links_from_email(msg: MailMessage) -> list[dict[str, str]]:
         Deduplicated list of {href, text} dicts.
 
     """
-    links = []
+    links: list[dict[str, str]] = []
     if msg.html:
         logging.info("Parsing HTML to extract links")
         soup = BeautifulSoup(msg.html, "html.parser")
-        for anchor in soup.find_all("a", href=True):
-            text = anchor.get_text(" ", strip=True)
-            links.append({"href": anchor["href"], "text": text})
+        for anchor in soup.find_all("a", href=True):  # pyright: ignore[reportAny]
+            text: str = anchor.get_text(" ", strip=True)  # pyright: ignore[reportAny]
+            links.append({"href": str(anchor["href"]), "text": text})  # pyright: ignore[reportAny]
     if msg.text:
         logging.info("Parsing plain text to extract links")
-        links.extend({"href": url, "text": ""} for url in re.findall(r"https?://[^\s)<>\"']+", msg.text))
-    deduped = []
-    seen = set()
+        links.extend({"href": url, "text": ""} for url in re.findall(r"https?://[^\s)<>\"']+", msg.text))  # pyright: ignore[reportAny]
+    deduped: list[dict[str, str]] = []
+    seen: set[str] = set()
     for link in links:
         href = link["href"]
         if href not in seen:
@@ -190,19 +190,20 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
             logging.error("Playwright returned no content for %s", url)
             return None, None
 
-        html_content_parsed_for_title = bare_extraction(
+        trafilatura_result: object | None = bare_extraction(
             html_content,
             with_metadata=True,
         )
-        if html_content_parsed_for_title is None:
+        if trafilatura_result is None:
             logging.error("trafilatura returned no metadata for %s", url)
             return None, None
-        webpage_text = extract(html_content, include_comments=False, favor_recall=True)
-        content_text = (
-            (html_content_parsed_for_title.as_dict().get("title") or "") + ".\n" + "\n" + (webpage_text or "")
-        )
+        webpage_text: str = str(extract(html_content, include_comments=False, favor_recall=True) or "")
+        as_dict_fn = getattr(trafilatura_result, "as_dict", None)
+        raw_dict: object = as_dict_fn() if callable(as_dict_fn) else None
+        title: str = str(raw_dict.get("title") or "") if isinstance(raw_dict, dict) else ""  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        content_text: str = title + ".\n" + "\n" + webpage_text
 
-        return html_content_parsed_for_title, content_text
+        return trafilatura_result, content_text
 
     except Exception:
         logging.exception("Error occurred")
@@ -211,14 +212,21 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
 
 def main() -> None:
     """Fetch unseen emails and route them through the intake pipeline."""
+    if not gmail_user or not gmail_password:
+        logging.error("Gmail credentials not set")
+        return
     with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
-        msgs = mailbox.fetch(AND(seen=False), mark_seen=False)
+        msgs = mailbox.fetch(AND(seen=False), mark_seen=False)  # pyright: ignore[reportUnknownMemberType]
         for msg in msgs:
             try:
                 subject_raw = unfold_header_value(msg.subject).replace("Fwd: ", "")
                 date_stamp = msg.date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
-                from_name_raw = unfold_header_value(msg.from_values.name)
-                from_email = msg.from_values.email or ""
+                from_values = msg.from_values
+                if not from_values:
+                    logging.warning("Skipping email with no from_values")
+                    continue
+                from_name_raw = unfold_header_value(from_values.name)
+                from_email = from_values.email or ""
                 from_name_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", from_name_raw)
                 from_prefix_for_filename = from_name_for_filename + "- " if from_name_for_filename else ""
                 subject_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", subject_raw)
@@ -250,7 +258,9 @@ def main() -> None:
                         ],
                     )
                     logging.info("Writing raw metadata and text to text input")
-                    _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + email_text_raw, encoding="utf-8")
+                    _ = pathlib.Path(output_filename).write_text(
+                        metadata_block + "\n\n" + email_text_raw, encoding="utf-8"
+                    )
                 elif subject_for_filter_lower == "youtube":
                     email_text_raw = msg.text
                     youtube_url = re.sub(r"[^\S]+", "", email_text_raw)
@@ -269,13 +279,14 @@ def main() -> None:
                         ],
                         "outtmpl": "../dropcaster-docker/audio/%(uploader)s- %(title)s.%(ext)s",
                     }
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # pyright: ignore[reportArgumentType]
                         info = ydl.extract_info(youtube_url, download=True)
-                        base_filename = ydl.prepare_filename(info)
+                        base_filename: str = str(ydl.prepare_filename(info))
                         mp3_filename = str(pathlib.Path(base_filename).with_suffix(".mp3"))
-                        video_title = info.get("title") or "YouTube Video"
-                        video_url = info.get("webpage_url") or youtube_url
-                        video_description = info.get("description") or ""
+                        info_dict: dict[str, object] = dict(info) if info else {}
+                        video_title: str = str(info_dict.get("title") or "YouTube Video")
+                        video_url: str = str(info_dict.get("webpage_url") or youtube_url)
+                        video_description: str = str(info_dict.get("description") or "")
                         summary = generate_summary(video_description, video_title)
                         description_body = summary or "Summary unavailable."
                         description = f'{video_title}<br/><br/>{description_body}<br/><br/>Source: <a href="{video_url}">{video_url}</a>'
@@ -300,7 +311,13 @@ def main() -> None:
                             original_url,
                         )
                         continue
-                    raw_title = html_content_parsed_for_title.as_dict().get("title") or "No title available"
+                    as_dict_fn_link = getattr(html_content_parsed_for_title, "as_dict", None)
+                    raw_dict_link: object = as_dict_fn_link() if callable(as_dict_fn_link) else None
+                    raw_title: str = (
+                        str(raw_dict_link.get("title") or "No title available")  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                        if isinstance(raw_dict_link, dict)
+                        else "No title available"
+                    )
                     title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", raw_title)
                     output_filename = f"{output_folder}/{date_stamp}-{title_for_filename}.txt"
                     metadata_block = "\n".join(
@@ -313,11 +330,15 @@ def main() -> None:
                         ],
                     )
                     logging.info("Writing metadata block to text input")
-                    _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + webpage_text, encoding="utf-8")
+                    _ = pathlib.Path(output_filename).write_text(
+                        metadata_block + "\n\n" + webpage_text, encoding="utf-8"
+                    )
                 flags = MailMessageFlags.SEEN
-                _ = mailbox.flag(msg.uid, flags, value=True)
+                uid: str = msg.uid or ""
+                _ = mailbox.flag(uid, flags, value=True)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             except Exception:
-                from_email_for_error = msg.from_values.email if msg.from_values else "unknown"
+                error_from = msg.from_values
+                from_email_for_error = error_from.email if error_from else "unknown"
                 logging.exception("Error processing email from %s: %s", from_email_for_error, msg.subject)
                 send_gotify_notification(
                     "Email processing error",
