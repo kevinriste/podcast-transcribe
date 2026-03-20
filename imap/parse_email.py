@@ -8,6 +8,7 @@ import yt_dlp
 from bs4 import BeautifulSoup
 from imap_tools.consts import MailMessageFlags
 from imap_tools.mailbox import MailBox
+from imap_tools.message import MailMessage
 from imap_tools.query import AND
 from playwright.sync_api import sync_playwright
 from podcast_shared import apply_id3_tags, generate_summary, send_gotify_notification
@@ -21,11 +22,11 @@ gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
 local_scraper_url = "http://localhost:3001/fetch"
 
 
-def normalize_text(value):
+def normalize_text(value: str) -> str:
     return " ".join(value.strip().lower().split())
 
 
-def unfold_header_value(value):
+def unfold_header_value(value: str | None) -> str:
     if not value:
         return ""
     unfolded = re.sub(r"\r?\n[ \t]+", " ", value)
@@ -33,7 +34,7 @@ def unfold_header_value(value):
     return unfolded.strip()
 
 
-def clean_substack_url(url):
+def clean_substack_url(url: str) -> str:
     try:
         parsed = urlparse(url)
         if "substack.com" not in parsed.netloc or not parsed.query:
@@ -49,7 +50,7 @@ def clean_substack_url(url):
         return url
 
 
-def extract_links_from_email(msg):
+def extract_links_from_email(msg: MailMessage) -> list[dict[str, str]]:
     links = []
     if msg.html:
         logging.info("Parsing HTML to extract links")
@@ -70,7 +71,7 @@ def extract_links_from_email(msg):
     return deduped
 
 
-def find_source_url(links, source_kind, subject):
+def find_source_url(links: list[dict[str, str]], source_kind: str, subject: str) -> str:
     subject_norm = normalize_text(subject)
     logging.info("Selecting source URL for %s email", source_kind)
     if source_kind == "beehiiv":
@@ -102,7 +103,7 @@ def find_source_url(links, source_kind, subject):
     return ""
 
 
-def fetch_and_process_html(url, request_body=None):
+def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None) -> tuple[object | None, str | None]:
     """Fetch a URL via headless Chromium and extract text with trafilatura.
 
     Parameters

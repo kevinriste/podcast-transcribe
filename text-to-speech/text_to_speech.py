@@ -26,7 +26,9 @@ INTAKE_TYPE_LABELS = {
 }
 
 
-def build_description(summary, title, source_url, source_kind, source_name="", intake_type=""):
+def build_description(
+    summary: str, title: str, source_url: str, source_kind: str, source_name: str = "", intake_type: str = ""
+) -> str:
     description_body = summary or "Summary unavailable."
     title_line = title or "Untitled"
     parts = [description_body, f"Title: {title_line}"]
@@ -41,7 +43,7 @@ def build_description(summary, title, source_url, source_kind, source_name="", i
     return "<br/><br/>".join(parts)
 
 
-def to_base36(value):
+def to_base36(value: int) -> str:
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
     if value == 0:
         return "0"
@@ -58,7 +60,7 @@ def process_files() -> None:
         text_to_speech(f)
 
 
-def text_to_speech(incoming_filename) -> None:
+def text_to_speech(incoming_filename: str | pathlib.Path) -> None:
     with pathlib.Path(incoming_filename).open("rb") as filename:
         logging.info("Synthesizing speech for %s", filename.name)
         name = pathlib.Path(filename.name).name.replace(".txt", "")

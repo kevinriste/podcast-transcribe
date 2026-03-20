@@ -19,7 +19,7 @@ output_folder = "../prepare-text/text-input-raw"
 feeds_file = "feeds.txt"
 
 
-def get_entry_link(entry):
+def get_entry_link(entry: object) -> str:
     link = getattr(entry, "link", None)
     if link:
         return link
