@@ -97,7 +97,7 @@ def main() -> None:
             try:
                 most_recent_guid = pathlib.Path(guid_filename).read_text(encoding="utf-8")
                 if enable_diagnosis:
-                    shutil.copy(
+                    shutil.copy2(
                         guid_filename,
                         f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-before.txt",
                     )
@@ -159,7 +159,7 @@ def main() -> None:
                 # Copy new version of guids txt file
                 date_string = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
                 if enable_diagnosis:
-                    shutil.copy(
+                    shutil.copy2(
                         guid_filename,
                         f"{diagnosis_dir}/{clean_feed_name}-{date_string}-guids-after.txt",
                     )
