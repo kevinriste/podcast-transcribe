@@ -24,6 +24,20 @@ gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
 local_scraper_url = "http://localhost:3001/fetch"
 
 
+def extract_title(obj: object) -> str:
+    """Extract the title from a trafilatura result via as_dict().
+
+    Returns:
+        The title string, or empty string if unavailable.
+
+    """
+    as_dict_fn = getattr(obj, "as_dict", None)
+    raw: object = as_dict_fn() if callable(as_dict_fn) else None
+    if isinstance(raw, dict):
+        return str(raw.get("title") or "")  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    return ""
+
+
 def normalize_text(value: str) -> str:
     """Lowercase, strip, and collapse whitespace in a string.
 
@@ -198,9 +212,7 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
             logging.error("trafilatura returned no metadata for %s", url)
             return None, None
         webpage_text: str = str(extract(html_content, include_comments=False, favor_recall=True) or "")
-        as_dict_fn = getattr(trafilatura_result, "as_dict", None)
-        raw_dict: object = as_dict_fn() if callable(as_dict_fn) else None
-        title: str = str(raw_dict.get("title") or "") if isinstance(raw_dict, dict) else ""  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        title: str = extract_title(trafilatura_result)
         content_text: str = title + ".\n" + "\n" + webpage_text
 
         return trafilatura_result, content_text
@@ -311,13 +323,7 @@ def main() -> None:
                             original_url,
                         )
                         continue
-                    as_dict_fn_link = getattr(html_content_parsed_for_title, "as_dict", None)
-                    raw_dict_link: object = as_dict_fn_link() if callable(as_dict_fn_link) else None
-                    raw_title: str = (
-                        str(raw_dict_link.get("title") or "No title available")  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-                        if isinstance(raw_dict_link, dict)
-                        else "No title available"
-                    )
+                    raw_title: str = extract_title(html_content_parsed_for_title) or "No title available"
                     title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", raw_title)
                     output_filename = f"{output_folder}/{date_stamp}-{title_for_filename}.txt"
                     metadata_block = "\n".join(
