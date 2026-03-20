@@ -593,6 +593,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pydub-stubs"
+version = "0.25.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5c/28/2ae85a1671861ee88235c3bd50f495a80562003f22ab4223af6c8dfcbfc2/pydub_stubs-0.25.1.6.tar.gz", hash = "sha256:38e9a1e490b11e9fdd3c5a0b01667e2d959c817aadb56555b124c6c8be028ff5", size = 8602 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/52/9e/c286937e56d47c97ce2221456b7779abf6449fd41d78a8fb9d2b13065b8c/pydub_stubs-0.25.1.6-py3-none-any.whl", hash = "sha256:235be0707485c48fe3d6537c751171bfeca21480c914e7e7bc9db2d6ed65f8ae", size = 9457 },
+]
+
+[[package]]
 name = "requests"
 version = "2.32.3"
 source = { registry = "https://pypi.org/simple" }
@@ -686,6 +698,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
+    { name = "pydub-stubs" },
     { name = "ruff" },
     { name = "types-beautifulsoup4" },
     { name = "types-requests" },
@@ -702,6 +715,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright", specifier = ">=1.20.0" },
+    { name = "pydub-stubs", specifier = ">=0.25.1.6" },
     { name = "ruff", specifier = ">=0.7.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.12.0" },
     { name = "types-requests", specifier = ">=2.32.0" },
