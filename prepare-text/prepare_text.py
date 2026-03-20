@@ -312,7 +312,7 @@ def apply_general_cleaning(
         # Then global config
         if key in gc_config:
             return bool(gc_config[key])
-        # Default: enabled
+        # All cleaning steps are enabled by default
         return True
 
     def count_and_sub(pattern: str, replacement: str, text: str, key: str, flags: int = 0) -> str:
@@ -585,7 +585,7 @@ def process_file(filepath: pathlib.Path, config: dict, all_stats: dict) -> None:
             )
             continue
 
-        # action == skip
+        # Remaining case is skip (notify already handled above)
         skip_file = True
         filter_reason = reason
         break
