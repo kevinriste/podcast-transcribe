@@ -1,11 +1,25 @@
 [tool.ruff]
-line-length = 120
+line-length = 200
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["ALL"]
 preview = true
-ignore = ["D", "CPY", "PLR0914"]
+ignore = [
+    "D",        # pydocstyle — revisiting separately
+    "CPY",      # copyright headers
+    "LOG015",   # root logger — standalone scripts, named loggers add noise
+    "C901",     # complexity — procedural pipeline scripts
+    "PLR0911",  # too many return statements
+    "PLR0912",  # too many branches
+    "PLR0913",  # too many arguments
+    "PLR0914",  # too many local variables
+    "PLR0915",  # too many statements
+    "PLR0917",  # too many positional arguments
+    "PLR1702",  # too many nested blocks
+    "PLR2004",  # magic value comparison
+    "TRY300",   # try-consider-else
+]
 
 [tool.basedpyright]
 typeCheckingMode = "all"
