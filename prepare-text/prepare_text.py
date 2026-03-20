@@ -12,7 +12,7 @@ import pathlib
 import re
 import shutil
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 import markdown
 import yaml
@@ -60,6 +60,80 @@ CLEANING_STEPS = (
 VALID_CLEANING_KEYS = frozenset(CLEANING_STEPS)
 
 
+# ---------------------------------------------------------------------------
+# Type definitions
+# ---------------------------------------------------------------------------
+
+
+class NotifyConfig(TypedDict):
+    """Gotify notification configuration for a filter rule."""
+
+    priority: int
+    title: str
+
+
+class _FilterRuleOptional(TypedDict, total=False):
+    action: str  # "skip" | "notify"
+    llm_check: str
+    notify: NotifyConfig
+
+
+class FilterRule(_FilterRuleOptional):
+    """A single filter rule from filters.yaml."""
+
+    match: dict[str, dict[str, str]]  # field -> {operator: value}
+    reason: str
+
+
+class _TextRemovalOptional(TypedDict, total=False):
+    flags: str | list[str]
+
+
+class TextRemoval(_TextRemovalOptional):
+    """A regex removal rule from filters.yaml."""
+
+    pattern: str
+    reason: str
+
+
+class _TextReplacementOptional(TypedDict, total=False):
+    flags: str | list[str]
+
+
+class TextReplacement(_TextReplacementOptional):
+    """A regex replacement rule from filters.yaml."""
+
+    pattern: str
+    replacement: str
+    reason: str
+
+
+class PipelineConfig(TypedDict, total=False):
+    """Root config structure from filters.yaml."""
+
+    filters: list[FilterRule]
+    general_cleaning: dict[str, Any]  # dynamic keys from CLEANING_STEPS
+    text_removals: list[TextRemoval]
+    text_replacements: list[TextReplacement]
+
+
+class FileStats(TypedDict):
+    """Per-file processing statistics."""
+
+    file: str
+    raw_archive: str | None
+    cleaned_archive: str | None
+    filtered_archive: str | None
+    filters_checked: list[str]
+    filters_matched: list[str]
+    text_removals: dict[str, dict[str, int]]
+    text_replacements: dict[str, dict[str, int]]
+    general_cleaning: dict[str, dict[str, int | bool]]
+    outcome: Literal["filtered", "filtered_empty", "filtered_too_big", "cleaned"] | None
+    chars_before: int
+    chars_after: int | None
+
+
 def parse_flags(flags_raw: str | list[str] | None) -> int:
     """Convert YAML flag names to a combined re flags integer.
 
@@ -87,7 +161,7 @@ def parse_flags(flags_raw: str | list[str] | None) -> int:
     return result
 
 
-def validate_match_block(match_block: dict[str, Any], context: str) -> None:
+def validate_match_block(match_block: dict[str, dict[str, str]], context: str) -> None:
     """Validate a filter's match block has valid fields and operators.
 
     Raises:
@@ -111,7 +185,7 @@ def validate_match_block(match_block: dict[str, Any], context: str) -> None:
                 raise ValueError(msg)
 
 
-def validate_config(config: dict[str, Any]) -> None:
+def validate_config(config: PipelineConfig) -> None:
     """Validate the full filters.yaml configuration structure.
 
     Raises:
@@ -215,7 +289,7 @@ def validate_config(config: dict[str, Any]) -> None:
             raise ValueError(msg) from exc
 
 
-def validate_rule_ordering(filters: list[dict[str, Any]]) -> list[str]:
+def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
     """Check for skip rules that shadow later rules with overlapping match criteria.
 
     Returns:
@@ -241,7 +315,7 @@ def validate_rule_ordering(filters: list[dict[str, Any]]) -> list[str]:
     return errors
 
 
-def _match_is_subset(subset: dict[str, Any], superset: dict[str, Any]) -> bool:
+def _match_is_subset(subset: dict[str, dict[str, str]], superset: dict[str, dict[str, str]]) -> bool:
     """Check if everything matched by 'subset' criteria is also matched by 'superset'.
 
     A superset match has fewer or equal constraints — so subset must contain
@@ -268,7 +342,7 @@ def _match_is_subset(subset: dict[str, Any], superset: dict[str, Any]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def evaluate_match(match_block: dict[str, Any], metadata: dict[str, str]) -> bool:
+def evaluate_match(match_block: dict[str, dict[str, str]], metadata: dict[str, str]) -> bool:
     """Test whether a file's metadata satisfies a filter's match criteria.
 
     Returns:
@@ -350,8 +424,8 @@ def clean_beehiiv_emphasis(text: str) -> str:
 def apply_general_cleaning(
     text: str,
     metadata: dict[str, str],
-    config: dict[str, Any],
-    stats: dict[str, dict[str, Any]],
+    config: PipelineConfig,
+    stats: dict[str, dict[str, int | bool]],
 ) -> str:
     """Apply all built-in cleaning steps (URL removal, whitespace, etc.).
 
@@ -479,7 +553,7 @@ def apply_general_cleaning(
 # ---------------------------------------------------------------------------
 
 
-def apply_text_removals(text: str, config: dict[str, Any], stats: dict[str, dict[str, Any]]) -> str:
+def apply_text_removals(text: str, config: PipelineConfig, stats: dict[str, dict[str, int]]) -> str:
     """Apply YAML-configured regex removals to text content.
 
     Returns:
@@ -498,7 +572,7 @@ def apply_text_removals(text: str, config: dict[str, Any], stats: dict[str, dict
     return result
 
 
-def apply_text_replacements(text: str, config: dict[str, Any], stats: dict[str, dict[str, Any]]) -> str:
+def apply_text_replacements(text: str, config: PipelineConfig, stats: dict[str, dict[str, int]]) -> str:
     """Apply YAML-configured regex replacements to text content.
 
     Returns:
@@ -523,7 +597,7 @@ def apply_text_replacements(text: str, config: dict[str, Any], stats: dict[str, 
 # ---------------------------------------------------------------------------
 
 
-def load_today_stats() -> dict[str, Any]:
+def load_today_stats() -> dict[str, FileStats]:
     """Load today's stats JSON file, or return an empty dict.
 
     Returns:
@@ -537,7 +611,7 @@ def load_today_stats() -> dict[str, Any]:
     return {}
 
 
-def save_stats(stats: dict[str, Any]) -> None:
+def save_stats(stats: dict[str, FileStats]) -> None:
     """Write the stats dict to today's JSON file."""
     today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     stats_path = pathlib.Path(STATS_DIR) / f"{today}.json"
@@ -590,7 +664,7 @@ def write_metadata_and_content(
 # ---------------------------------------------------------------------------
 
 
-def load_config() -> dict[str, Any]:
+def load_config() -> PipelineConfig:
     """Load and validate filters.yaml, returning an empty dict if absent.
 
     Returns:
@@ -602,12 +676,12 @@ def load_config() -> dict[str, Any]:
         logging.info("No filters.yaml found; using defaults (no filters, no removals)")
         return {}
     raw = config_path.read_text(encoding="utf-8")
-    config = yaml.safe_load(raw) or {}
+    config: PipelineConfig = yaml.safe_load(raw) or {}
     validate_config(config)
     return config
 
 
-def process_file(filepath: pathlib.Path, config: dict[str, Any], all_stats: dict[str, Any]) -> None:
+def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict[str, FileStats]) -> None:
     """Filter, clean, and write a single raw text file."""
     filename = filepath.name
     logging.info("Processing: %s", filename)
@@ -619,7 +693,7 @@ def process_file(filepath: pathlib.Path, config: dict[str, Any], all_stats: dict
     timestamp = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
     # Initialize stats entry
-    file_stats: dict[str, Any] = {
+    file_stats: FileStats = {
         "file": filename,
         "raw_archive": None,
         "cleaned_archive": None,
@@ -699,7 +773,7 @@ def process_file(filepath: pathlib.Path, config: dict[str, Any], all_stats: dict
         return
 
     # --- Apply cleaning ---
-    gc_stats: dict[str, dict[str, Any]] = {}
+    gc_stats: dict[str, dict[str, int | bool]] = {}
     cleaned_text: str = apply_general_cleaning(
         content_raw,
         metadata,
@@ -709,12 +783,12 @@ def process_file(filepath: pathlib.Path, config: dict[str, Any], all_stats: dict
     file_stats["general_cleaning"] = gc_stats
 
     # YAML text removals
-    removal_stats: dict[str, dict[str, Any]] = {}
+    removal_stats: dict[str, dict[str, int]] = {}
     cleaned_text = apply_text_removals(cleaned_text, config, removal_stats)
     file_stats["text_removals"] = removal_stats
 
     # YAML text replacements
-    replacement_stats: dict[str, dict[str, Any]] = {}
+    replacement_stats: dict[str, dict[str, int]] = {}
     cleaned_text = apply_text_replacements(cleaned_text, config, replacement_stats)
     file_stats["text_replacements"] = replacement_stats
 
@@ -824,7 +898,7 @@ def process_files() -> None:
     # Validate rule ordering
     filters = config.get("filters") or []
     ordering_errors = validate_rule_ordering(filters)
-    shadowed_matches: list[dict[str, Any]] = []
+    shadowed_matches: list[dict[str, dict[str, str]]] = []
 
     if ordering_errors:
         error_msg = "Filter rule ordering issues:\n" + "\n".join(ordering_errors)
