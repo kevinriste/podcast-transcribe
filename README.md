@@ -1,144 +1,153 @@
-# Podcast transcription service
+# podcast-transcribe
 
-## Purpose
+![pipeline hero](docs/hero.png)
 
-I created this in order to consume Substack subscriptions in the form of a podcast, because I'm much more effective at listening to podcasts than I am at reading emails.
+Convert newsletters, articles, and YouTube videos into a personal podcast feed — automatically.
 
-## How it works
+Substack, Beehiiv, and RSS content is fetched, cleaned, synthesized to speech via Google Cloud TTS, and published as a podcast RSS feed. Runs every 20 minutes via cron.
 
-- `process-caller.sh` is the cron entrypoint, adds timestamps, and writes per-run logs.
-- `process.sh` orchestrates the pipeline every 20 minutes:
-  - IMAP parsing (`imap/parse_email.py`) downloads unseen emails and writes text inputs with metadata headers.
-  - RSS parsing (`rss/check-rss.py`) reads `rss/feeds.txt`, fetches new items, and writes text inputs with metadata headers.
-  - Archives a copy of text inputs to `text-to-speech/input-text-archive`.
-  - Google TTS (`text-to-speech/text_to_speech.py`) chunks text, generates MP3s, writes ID3 tags, and moves audio into `dropcaster-docker/audio`.
-  - Dropcaster renders the RSS feed when audio changes.
-  - Audio older than 8 weeks is archived to `dropcaster-docker/audio-archive` before Dropcaster runs.
+## Pipeline
 
-Optional scripts:
-- None (OpenAI/AWS TTS scripts removed).
+```mermaid
+flowchart TB
+    subgraph intake ["Intake"]
+        direction TB
+        gmail["Gmail IMAP<br/><small>unseen messages</small>"]
+        rss_feeds["RSS Feeds<br/><small>NYT, Megaphone</small>"]
 
-## Runtime requirements
+        gmail --> email_route{subject?}
+        email_route -->|default| newsletters["Newsletter Parser<br/><small>Substack / Beehiiv detection<br/>source URL extraction</small>"]
+        email_route -->|"link"| link_fetch["Article Fetcher<br/><small>Playwright + trafilatura<br/>via localhost:3001</small>"]
+        email_route -->|"youtube"| yt["yt-dlp<br/><small>download + FFmpeg → MP3</small>"]
 
-- Ubuntu + cron (current schedule: `*/20 * * * * bash -l /home/flog99/dev/podcast-transcribe/process-caller.sh >> /home/flog99/process-log.log 2>&1`)
-- Docker + Docker Compose (Dropcaster and nginx-proxy stack).
-- Python via `pyenv` + `uv` for IMAP/RSS/Google TTS (pyproject requires >=3.9).
-- Playwright browsers installed for IMAP/RSS fetches.
-- `ffmpeg` available on PATH (required by `pydub`).
-- Dropcaster is a git submodule (`dropcaster-docker/dropcaster`), so run `git submodule update --init --recursive` after cloning.
-- Local article scraper services:
-  - IMAP link mode: `http://localhost:3001/fetch?url=...`
-  - RSS fetcher: `http://localhost:3002/fetch?url=...`
+        rss_feeds --> rss_parse["RSS Parser<br/><small>feedparser + BeautifulSoup<br/>GUID tracking</small>"]
+    end
 
-## Intake methods (end-to-end)
+    subgraph prep ["Prepare Text"]
+        direction TB
+        raw_files[("text-input-raw/<br/><small>META_ headers + body</small>")]
+        filters["YAML Filters<br/><small>skip / notify / LLM check</small>"]
+        cleaning["General Cleaning<br/><small>URL removal, whitespace collapse<br/>bracket cleanup, unsubscribe removal<br/>end-of-line punctuation</small>"]
+        removals["Text Removals & Replacements<br/><small>YAML-configured regexes<br/>image captions, disclaimers<br/>pronunciation fixes</small>"]
+        empty_check{"empty?"}
+        cleaned_files[("text-input-cleaned/")]
 
-### Email: plain newsletters (Substack/Beehiiv/other)
-1) `imap/parse_email.py` reads unread IMAP messages.
-2) Email text is cleaned; Beehiiv sources are converted to plain text.
-3) A source URL is extracted from the email HTML.
-   - Substack: chooses the post link and cleans it to `publication_id` + `post_id`.
-   - Beehiiv: uses the “Read Online” link and displays the sender name.
-   - Unknown sources: sends a Gotify notification and leaves the source URL blank.
-4) Metadata is prepended to the text input:
-   - `META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND`
-5) The text is written to `text-to-speech/text-input/*.txt`.
+        raw_files --> filters
+        filters -->|matched| filtered[/"filtered/"/]
+        filters -->|passed| cleaning
+        cleaning --> removals
+        removals --> empty_check
+        empty_check -->|yes| filtered
+        empty_check -->|no| cleaned_files
+    end
 
-### Email: "link" subject (full article fetch)
-1) `imap/parse_email.py` treats the email body as a URL.
-2) The URL is fetched via the local scraper (`http://localhost:3001/fetch`).
-3) Metadata is prepended (`META_TITLE`, `META_SOURCE_URL`, `META_SOURCE_KIND=url`).
-4) The article text is written to `text-to-speech/text-input/*.txt`.
+    subgraph tts ["Text-to-Speech"]
+        direction TB
+        chunk["Chunk Text<br/><small>3–5k chars at punctuation</small>"]
+        gcloud["Google Cloud TTS<br/><small>en-US-Wavenet-F → MP3</small>"]
+        stitch["Stitch MP3s<br/><small>pydub AudioSegment</small>"]
+        summary["Gemini Summary<br/><small>2–3 sentences</small>"]
+        id3["ID3 Tags<br/><small>mutagen: TIT2, TT3, WXXX</small>"]
+    end
 
-### Email: "youtube" subject
-1) `imap/parse_email.py` treats the email body as a YouTube URL.
-2) `yt-dlp` downloads audio and converts it to MP3.
-3) A summary is generated from the YouTube description.
-4) ID3 tags are written directly to the MP3 (description + source link).
+    subgraph publish ["Publish"]
+        direction TB
+        audio_dir[("dropcaster-docker/audio/")]
+        archive["Archive > 8 weeks"]
+        dropcaster["Dropcaster<br/><small>Docker, regenerates index.rss<br/>only when audio changes</small>"]
+        feed["Podcast RSS Feed"]
 
-### RSS feeds
-1) `rss/check-rss.py` polls feeds in `rss/feeds.txt`.
-2) For NYT feeds, it uses the local scraper and (if needed) Wayback Machine.
-3) For other feeds, it extracts text from RSS entry content.
-4) Metadata is prepended and written to `text-to-speech/text-input/*.txt`.
-5) Feed GUIDs are tracked in `rss/feed-guids/` to avoid reprocessing.
+        audio_dir --> archive
+        audio_dir --> dropcaster
+        dropcaster --> feed
+    end
 
-## Text-to-speech (Google path)
-1) `text-to-speech/text_to_speech.py` reads `text-to-speech/text-input/*.txt`.
-2) Metadata is parsed and stripped from the content.
-3) The content is cleaned and chunked (3–5k characters per request).
-4) A 2–3 sentence summary is generated by Gemini (`gemini-3.1-flash-lite-preview`).
-5) The description is assembled:
-   - Summary
-   - `Title: <title>`
-   - `Source: <a href="...">...</a>`
-6) MP3 chunks are stitched into a single file and saved in `dropcaster-docker/audio`.
-7) ID3 tags are written (title + description + source URL).
+    newsletters --> raw_files
+    link_fetch --> raw_files
+    rss_parse --> raw_files
+    yt -->|"direct MP3 + ID3"| audio_dir
 
-## Email filters
+    cleaned_files --> chunk
+    chunk --> gcloud
+    gcloud --> stitch
+    stitch --> summary
+    summary --> id3
+    id3 --> audio_dir
 
-Certain emails are skipped (not sent to TTS) based on sender and subject:
-- **Jessica Valenti**: skipped unless the subject contains "the week in".
-- **K-Culture with Jae-Ha Kim**: skipped when the subject contains "BTS".
+    style intake fill:#1a1a2e,stroke:#e94560,color:#eee
+    style prep fill:#1a1a2e,stroke:#0f3460,color:#eee
+    style tts fill:#1a1a2e,stroke:#533483,color:#eee
+    style publish fill:#1a1a2e,stroke:#16213e,color:#eee
+    style filtered fill:#2d1b1b,stroke:#e94560,color:#e94560
+    style feed fill:#0f3460,stroke:#e94560,color:#eee
+```
 
-## Cleaning details
+## Sources
 
-### Email cleaning (`imap/parse_email.py`)
-Plain newsletter text is normalized before writing to the text input file:
-- If the sender is Beehiiv (`x-beehiiv-ids`), convert markdown to HTML and extract plain text.
-- Strip all URLs using a URL regex.
-- Remove empty bracket pairs: `[]`, `()`, `<>`.
-- Prefix the body with `From.` and `Subject.` lines (using the unstripped subject).
+| Source | Method | Details |
+|--------|--------|---------|
+| **Substack/Beehiiv newsletters** | Gmail IMAP | Auto-detected via headers and link patterns |
+| **Article links** | Email with subject "link" | Fetched via headless Chromium (Playwright) + trafilatura |
+| **YouTube** | Email with subject "youtube" | Audio downloaded via yt-dlp, bypasses TTS pipeline |
+| **NYT columns** | RSS via Wayback Machine | Ross Douthat, Ezra Klein |
+| **Bill Simmons Podcast** | RSS (Megaphone) | Description extracted, NFL episodes flagged via Gemini LLM |
 
-### TTS cleaning (`text-to-speech/text_to_speech.py`)
-The Google TTS script applies these transformations in order:
-- Remove runs of 3+ dashes (`---` → ``).
-- Remove all URLs using a URL regex.
-- Remove empty bracket pairs: `[]`, `()`, `<>`.
-- Collapse non-newline whitespace to single spaces.
-- Remove the “Unsubscribe” section if it appears after a blank line.
-- Remove “View this post on the web at” intro text.
-- Remove Beehiiv’s “plain text version” disclaimer text.
-- Remove a specific social-links block used by some newsletters (Facebook/Twitter/LinkedIn lines).
-- Remove Beehiiv image caption blocks (`View image: ... Caption: ...`).
-- Replace “Keynesian” with “Cainzeean” (pronunciation fix).
-- Add punctuation at line ends so narration pauses (`<word>\n` → `<word>.\n`).
+## Text Format
 
-## Paths
+All intermediate files use a simple plain-text format: `META_` header lines, a blank line, then the content body.
 
-- Text inputs: `text-to-speech/text-input`
-- Empty inputs: `text-to-speech/text-input-empty-files`
-- Oversized inputs: `text-to-speech/text-input-too-big`
-- Input text archive: `text-to-speech/input-text-archive`
-- RSS GUID tracking: `rss/feed-guids/`
-- Audio output: `dropcaster-docker/audio`
-- Archive: `dropcaster-docker/audio-archive`
-- Logs (cron): `/home/flog99/process-log.log`
-- Logs (per-run): `/home/flog99/process-log-runs/*.log`
+```
+META_FROM: Author Name
+META_TITLE: Article Title
+META_SOURCE_URL: https://...
+META_SOURCE_KIND: substack
+META_INTAKE_TYPE: email
 
-## Summaries and descriptions
+Article text content starts here...
+```
 
-- Summary model: Gemini `gemini-3.1-flash-lite-preview` (2–3 sentences).
-- Google TTS builds the ID3 description as:
-  - Summary
-  - `Title: <title>`
-  - `Source: <a href="...">...</a>`
-  - Separator: `<br/><br/>`
+## Processing
 
-## Environment variables and credentials
+**Filters** (YAML-configured in `filters.yaml`): Match on metadata fields with `contains`/`not_contains` operators. Actions: `skip` (discard) or `notify` (Gotify push). Optional `llm_check` for fuzzy matching via Gemini.
 
-Core pipeline:
-- `GMAIL_PODCAST_ACCOUNT`, `GMAIL_PODCAST_ACCOUNT_APP_PASSWORD`
-- `GEMINI_API_KEY` (summaries)
-- `GOTIFY_SERVER`, `GOTIFY_TOKEN`
-- `PODCAST_DOMAIN_PRIMARY`, `PODCAST_DOMAIN_SECONDARY`
-- `GOOGLE_APPLICATION_CREDENTIALS` (path to the Google TTS service account JSON; `process.sh` exports this)
+**Cleaning** (all enabled by default, per-source overrides): URL removal, triple-dash removal, legal bracket unwrap, empty bracket/paren removal, whitespace collapse, unsubscribe/view-online block removal, Substack refs removal, Beehiiv markdown conversion, end-of-line punctuation for TTS pausing.
 
-nginx-proxy + ACME:
-- `GMAIL_PRIMARY_ACCOUNT` (DEFAULT_EMAIL for ACME)
-- `CF_TOKEN`, `CF_ACCOUNT_ID` (Cloudflare DNS-01 challenge)
+**Text removals/replacements**: YAML-configured regexes for image captions, disclaimers, pronunciation fixes (e.g. Keynesian -> Cainzeean).
 
-## Manual runs
+## Speech Synthesis
 
-- IMAP parser: `cd imap && /home/flog99/.local/bin/uv run python3 parse_email.py`
-- RSS parser: `cd rss && /home/flog99/.local/bin/uv run python3 check-rss.py`
-- Google TTS: `cd text-to-speech && /home/flog99/.local/bin/uv run python3 text_to_speech.py`
+- **API**: Google Cloud Text-to-Speech (`texttospeech.TextToSpeechClient`)
+- **Voice**: `en-US-Wavenet-F`, MP3 encoding
+- **Chunking**: 3,000-5,000 characters, split at punctuation/whitespace boundaries
+- **Stitching**: pydub `AudioSegment` concatenation
+- **Summary**: Gemini `gemini-3.1-flash-lite-preview` generates a 2-3 sentence description
+
+## Tagging & Publishing
+
+- **ID3 tags** via mutagen (v1 + v2): `TIT2` (title), `TT3` (description with summary + source link), `WXXX` (source URL)
+- **Feed generation**: Dropcaster (Ruby, Docker) reads MP3 ID3 tags and generates `index.rss`
+- **Lifecycle**: Audio older than 8 weeks is archived weekly
+
+## Project Structure
+
+```
+podcast-transcribe/
+  imap/              # Email intake (parse_email.py)
+  rss/               # RSS intake (check-rss.py)
+  prepare-text/      # Filtering + cleaning (prepare_text.py, filters.yaml)
+  text-to-speech/    # TTS + tagging (text_to_speech.py)
+  shared/            # Shared utilities (podcast_shared/)
+  dropcaster-docker/ # Feed generation + audio hosting
+  process.sh         # Pipeline orchestration
+```
+
+Each subdirectory is an independent Python project managed by [uv](https://github.com/astral-sh/uv).
+
+## Requirements
+
+- Python 3.12+ via pyenv + uv
+- Docker + Docker Compose (Dropcaster)
+- Playwright browsers (`uv run playwright install`)
+- ffmpeg on PATH (pydub dependency)
+- Local scraper service at `localhost:3001` (article fetching)
+- Gmail app password, Gemini API key, Google Cloud TTS service account, Gotify server

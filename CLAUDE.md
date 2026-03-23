@@ -38,8 +38,9 @@ There are no tests. Validation is manual.
 
 Root `pyproject.toml` defines shared ruff + basedpyright config. Subproject `pyproject.toml` files extend it.
 
-- **ruff**: ALL rules enabled except D (docstrings), CPY (copyright), and PLR0914. Preview mode on. Line length 120. Target Python 3.12.
-- **basedpyright**: `typeCheckingMode = "all"`, Python 3.12.8.
+- **ruff**: ALL rules enabled except CPY (copyright) and specific complexity/style rules (C901, PLR0911-PLR2004, LOG015, TRY300, COM812, E501). D (docstrings) enabled with D213/D203 ignored. Preview mode on. Line length 120. Target Python 3.12.
+- **ruff format**: Enabled, line-length 120. E501 is not linted — the formatter handles it.
+- **basedpyright**: `typeCheckingMode = "all"`, Python 3.12.8. Zero errors across all subprojects. Untyped library boundaries narrowed with `isinstance`/`str()`/`getattr()` — never use `cast()`.
 
 ## Architecture
 
@@ -50,7 +51,7 @@ Root `pyproject.toml` defines shared ruff + basedpyright config. Subproject `pyp
    - `link`: fetch full article via Playwright + trafilatura through local scraper at `localhost:3001`
    - `youtube`: download audio via yt-dlp, write ID3 tags directly (bypasses TTS pipeline)
 
-2. **rss/check-rss.py** — Polls feeds from `rss/feeds.txt`. Bill Simmons feed extracts description text. Other feeds use BeautifulSoup on `entry.content`. GUIDs tracked in `rss/feed-guids/`. Output to `prepare-text/text-input-raw/`.
+2. **rss/check-rss.py** — Polls feeds from `rss/feeds.txt` (NYT columns via Wayback Machine, Bill Simmons via Megaphone). Bill Simmons feed extracts description text. Other feeds use BeautifulSoup on `entry.content`. GUIDs tracked in `rss/feed-guids/`. Output to `prepare-text/text-input-raw/`.
 
 3. **prepare-text/prepare_text.py** — Reads raw text from `text-input-raw/`, applies filters and text cleaning rules from `filters.yaml`, writes cleaned output to `text-input-cleaned/`. Handles filtering (skip/notify), general cleaning (URL removal, bracket cleanup, whitespace collapse, etc.), and YAML-configured text removals/replacements. Archives raw and cleaned files. Tracks per-file stats.
 
