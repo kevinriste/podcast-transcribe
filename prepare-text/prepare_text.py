@@ -713,7 +713,7 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
     raw_text = filepath.read_text(encoding="utf-8")
     metadata: dict[str, str]
     metadata, content_raw = split_metadata(raw_text)
-    timestamp = datetime.now(tz=UTC).isoformat(timespec="seconds")
+    timestamp = datetime.now(tz=UTC).isoformat(timespec="microseconds")
 
     # Initialize stats entry
     file_stats: FileStats = {
