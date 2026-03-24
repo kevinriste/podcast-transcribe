@@ -155,6 +155,10 @@ def extract_c_beautifulsoup_selective(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(SKIP_TAGS):
         tag.decompose()
+    for tag in soup.find_all(True, style=True):
+        style = tag.get("style", "")
+        if "display:none" in style.replace(" ", "") or "display: none" in style:
+            tag.decompose()
 
     output: list[str] = []
     _walk_element(soup, output)
@@ -173,6 +177,11 @@ def extract_d_cleaned_html(html: str) -> str:
     # Remove layout cruft tags
     for tag in soup.find_all(LAYOUT_CRUFT_TAGS):
         tag.decompose()
+    # Remove hidden elements (email preview text, tracking, etc.)
+    for tag in soup.find_all(True, style=True):
+        style = tag.get("style", "")
+        if "display:none" in style.replace(" ", "") or "display: none" in style:
+            tag.decompose()
 
     # Remove tracking pixels
     for selector in TRACKING_PIXEL_SELECTORS:

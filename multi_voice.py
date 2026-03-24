@@ -109,6 +109,11 @@ def parse_segments_html(html: str) -> list[dict[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup.find_all(SKIP_TAGS):
         tag.decompose()
+    # Remove hidden elements (email preview text, tracking, etc.)
+    for tag in soup.find_all(True, style=True):
+        style = tag.get("style", "")
+        if "display:none" in style.replace(" ", "") or "display: none" in style:
+            tag.decompose()
 
     segments: list[dict[str, str]] = []
     current_narration: list[str] = []
@@ -338,7 +343,7 @@ def main() -> None:
     arg_parser.add_argument("input_file", help="Path to source HTML or E-C marker text file")
     arg_parser.add_argument("--input-format", default="html", choices=["html", "markers"],
                             help="Input format: html (source.html) or markers (E-C text)")
-    arg_parser.add_argument("--engine", default="gemini-pro", choices=["gemini-pro", "gemini-flash", "wavenet"],
+    arg_parser.add_argument("--engine", default="gemini-pro", choices=["gemini-pro", "gemini-flash", "wavenet", "chirp3"],
                             help="TTS engine (default: gemini-pro)")
     arg_parser.add_argument("--narrator-voice", default=None, help="Narrator voice (default: per engine)")
     arg_parser.add_argument("--quote-voice", default=None, help="Quote voice (default: per engine)")
@@ -351,6 +356,9 @@ def main() -> None:
     if args.engine == "wavenet":
         narrator_voice = args.narrator_voice or WAVENET_NARRATOR
         quote_voice = args.quote_voice or WAVENET_QUOTE
+    elif args.engine == "chirp3":
+        narrator_voice = args.narrator_voice or "en-US-Chirp3-HD-Kore"
+        quote_voice = args.quote_voice or "en-US-Chirp3-HD-Charon"
     else:
         narrator_voice = args.narrator_voice or NARRATOR_VOICE
         quote_voice = args.quote_voice or QUOTE_VOICE
@@ -400,7 +408,7 @@ def main() -> None:
         voice = quote_voice if is_quote else narrator_voice
         label = f"{'quote' if is_quote else 'narr'}-{i + 1}"
 
-        if args.engine == "wavenet":
+        if args.engine in {"wavenet", "chirp3"}:
             audio = synthesize_segment_wavenet(tts_client, seg["text"], voice, label)
         else:
             style = QUOTE_STYLE if is_quote else NARRATOR_STYLE

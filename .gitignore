@@ -18,3 +18,5 @@
 /prepare-text/filters.yaml
 /prepare-text/stats/
 /html-comparison/
+TTS-TEST-PLAN.md
+text-to-speech/comparison_output*/
