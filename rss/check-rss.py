@@ -65,9 +65,9 @@ def main() -> None:
             # This prevents processing of old items.
             feed_updated_raw: str | None = getattr(feed_meta, "updated", None)
             if feed_updated_raw:
-                parsed_feed_updated_date = parser.parse(feed_updated_raw).replace(
-                    tzinfo=None,
-                )
+                parsed_feed_updated_date = parser.parse(feed_updated_raw)
+                if parsed_feed_updated_date.tzinfo is None:
+                    parsed_feed_updated_date = parsed_feed_updated_date.replace(tzinfo=UTC)
                 max_timedelta_since_feed_last_updated = timedelta(days=7)
                 timedelta_since_feed_last_updated = now - parsed_feed_updated_date
                 if timedelta_since_feed_last_updated > max_timedelta_since_feed_last_updated:
@@ -149,9 +149,12 @@ def main() -> None:
                     content_text = summary or description
                 else:
                     content_list: list[object] = getattr(parsed_feed_entry, "content", [])
-                    content_value: str = str(getattr(content_list[0], "value", ""))
-                    soup = BeautifulSoup(content_value, "html.parser")
-                    content_text = soup.get_text()
+                    if content_list:
+                        content_value: str = str(getattr(content_list[0], "value", ""))
+                        soup = BeautifulSoup(content_value, "html.parser")
+                        content_text = soup.get_text()
+                    else:
+                        content_text = str(getattr(parsed_feed_entry, "summary", "") or "")
                 metadata_block = "\n".join(
                     [
                         f"META_FROM: {feed_title_raw}",
