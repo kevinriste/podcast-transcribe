@@ -10,6 +10,7 @@ import feedparser  # pyright: ignore[reportMissingTypeStubs]
 import msgspec
 from bs4 import BeautifulSoup
 from dateutil import parser
+from podcast_shared import send_gotify_notification
 
 bill_simmons_feed = "https://feeds.megaphone.fm/the-bill-simmons-podcast"
 
@@ -178,6 +179,10 @@ def main() -> None:
                     )
         except Exception:
             logging.exception("Error processing feed %s", feed)
+            send_gotify_notification(
+                "RSS feed processing error",
+                f"Error processing feed: {feed}",
+            )
 
 
 if __name__ == "__main__":
