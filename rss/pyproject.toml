@@ -8,8 +8,10 @@ dependencies = [
     "beautifulsoup4>=4.12.3",
     "feedparser>=6.0.11",
     "msgspec>=0.19.0",
+    "playwright>=1.49.1",
     "podcast-shared",
     "python-dateutil>=2.9.0.post0",
+    "trafilatura>=2.0.0",
 ]
 
 [dependency-groups]

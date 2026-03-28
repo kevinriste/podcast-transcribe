@@ -30,6 +30,8 @@ echo "Main--Run IMAP Parse Emails script"
 cd /home/flog99/dev/podcast-transcribe/rss
 echo "Main--Install Parse RSS dependencies"
 /home/flog99/.local/bin/uv sync
+echo "Main--Ensure Playwright is up to date (RSS)"
+/home/flog99/.local/bin/uv run playwright install
 echo "Main--Run Parse RSS script"
 /home/flog99/.local/bin/uv run python3 check-rss.py
 cd /home/flog99/dev/podcast-transcribe/prepare-text

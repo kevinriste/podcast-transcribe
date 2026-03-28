@@ -48,10 +48,10 @@ Root `pyproject.toml` defines shared ruff + basedpyright config. Subproject `pyp
 
 1. **imap/parse_email.py** — Fetches unseen Gmail messages. Three intake modes based on subject:
    - Default (newsletters): extract text, detect Beehiiv/Substack, find source URL, write text file with metadata headers to `prepare-text/text-input-raw/`
-   - `link`: fetch full article via Playwright + trafilatura through local scraper at `localhost:3001`
+   - `link`: fetch full article via Playwright + trafilatura; routes NYT URLs to authenticated scraper at `localhost:3002`, all others to general scraper at `localhost:3001`
    - `youtube`: download audio via yt-dlp, write ID3 tags directly (bypasses TTS pipeline)
 
-2. **rss/check-rss.py** — Polls feeds from `rss/feeds.txt` (NYT columns via Wayback Machine, Bill Simmons via Megaphone). Bill Simmons feed extracts description text. Other feeds use BeautifulSoup on `entry.content`. GUIDs tracked in `rss/feed-guids/`. Output to `prepare-text/text-input-raw/`.
+2. **rss/check-rss.py** — Polls feeds from `rss/feeds.txt` (NYT columns, Bill Simmons via Megaphone). NYT feeds fetch full articles via NYT scraper at `localhost:3002` (authenticated, logs into nytimes.com) with Playwright + trafilatura, verified by check phrases; on failure, sends Gotify notification and breaks (preserving GUID for retry). Bill Simmons feed extracts description text. Other feeds use BeautifulSoup on `entry.content`. GUIDs tracked in `rss/feed-guids/`. Output to `prepare-text/text-input-raw/`.
 
 3. **prepare-text/prepare_text.py** — Reads raw text from `text-input-raw/`, applies filters and text cleaning rules from `filters.yaml`, writes cleaned output to `text-input-cleaned/`. Handles filtering (skip/notify), general cleaning (URL removal, bracket cleanup, whitespace collapse, etc.), and YAML-configured text removals/replacements. Archives raw and cleaned files. Tracks per-file stats.
 

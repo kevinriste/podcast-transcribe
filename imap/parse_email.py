@@ -26,6 +26,7 @@ output_folder = "../prepare-text/text-input-raw"
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
 local_scraper_url = "http://localhost:3001/fetch"
+nyt_scraper_url = "http://localhost:3002/fetch"
 
 
 def extract_title(obj: object) -> str:
@@ -317,8 +318,9 @@ def main() -> None:
                     url_text_compact = re.sub(r"[^\S]+", "", email_text_raw)
                     logging.info("fetching webpage: %s", url_text_compact)
                     original_url = url_text_compact
+                    scraper_url = nyt_scraper_url if "nytimes.com" in original_url else local_scraper_url
                     html_content_parsed_for_title, webpage_text = fetch_and_process_html(
-                        url=local_scraper_url,
+                        url=scraper_url,
                         request_body={"url": original_url},
                     )
                     if webpage_text is None or html_content_parsed_for_title is None:

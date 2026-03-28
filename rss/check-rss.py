@@ -10,9 +10,23 @@ import feedparser  # pyright: ignore[reportMissingTypeStubs]
 import msgspec
 from bs4 import BeautifulSoup
 from dateutil import parser
+from playwright.sync_api import sync_playwright
 from podcast_shared import send_gotify_notification
+from trafilatura import bare_extraction, extract
 
 bill_simmons_feed = "https://feeds.megaphone.fm/the-bill-simmons-podcast"
+nyt_scraper_url = "http://localhost:3002/fetch"
+
+nyt_feeds = (
+    "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ross-douthat/rss.xml",
+    "https://www.nytimes.com/svc/collections/v1/publish/www.nytimes.com/column/ezra-klein/rss.xml",
+)
+
+nyt_check_phrases = (
+    "has been an Opinion columnist",
+    "From Beirut to Jerusalem",
+    "joined Opinion in 2021",
+)
 
 enable_diagnosis = False
 
@@ -38,6 +52,68 @@ def get_entry_link(entry: object) -> str:
         if href:
             return href
     return ""
+
+
+def fetch_nyt_article(original_url: str) -> str | None:
+    """Fetch a full NYT article via the local scraper and verify completeness.
+
+    Uses Playwright to navigate to the local scraper service, then extracts
+    article text with trafilatura. Verifies the full article was captured by
+    checking for known NYT author bio phrases.
+
+    Returns:
+        The article text with title, or None if the fetch failed or the
+        article was incomplete.
+
+    """
+    logging.info("Fetching NYT article via NYT scraper: %s", original_url)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
+
+            try:
+                _ = page.goto(
+                    f"{nyt_scraper_url}?url={original_url}",
+                    wait_until="networkidle",
+                    timeout=180000,
+                )
+                html_content: str | None = page.content()
+            except Exception:
+                logging.exception("Error fetching %s via local scraper", original_url)
+                html_content = None
+            finally:
+                browser.close()
+    except Exception:
+        logging.exception("Playwright error for %s", original_url)
+        return None
+
+    if html_content is None:
+        logging.error("Playwright returned no content for %s", original_url)
+        return None
+
+    trafilatura_result: object | None = bare_extraction(html_content, with_metadata=True)
+    webpage_text: str = str(extract(html_content, include_comments=False, favor_recall=True) or "")
+
+    title = ""
+    if trafilatura_result is not None:
+        as_dict_fn = getattr(trafilatura_result, "as_dict", None)
+        raw: object = as_dict_fn() if callable(as_dict_fn) else None
+        if isinstance(raw, dict):
+            title = str(raw.get("title") or "")  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+
+    content_text = title + ".\n" + "\n" + webpage_text
+
+    if all(phrase not in content_text for phrase in nyt_check_phrases):
+        logging.warning(
+            "Local scraper did not return full article for %s",
+            original_url,
+        )
+        return None
+
+    return content_text
 
 
 def main() -> None:
@@ -144,10 +220,20 @@ def main() -> None:
                 meta_title = entry_title_raw
                 original_url = get_entry_link(parsed_feed_entry)
 
+                content_text: str
                 if feed == bill_simmons_feed:
                     summary: str = str(getattr(parsed_feed_entry, "summary", "") or "")
                     description: str = str(getattr(parsed_feed_entry, "description", "") or "")
                     content_text = summary or description
+                elif feed in nyt_feeds:
+                    nyt_content = fetch_nyt_article(original_url)
+                    if nyt_content is None:
+                        send_gotify_notification(
+                            "Incomplete NYT article",
+                            f"Could not fetch full article: {original_url}",
+                        )
+                        break
+                    content_text = nyt_content
                 else:
                     content_list: list[object] = getattr(parsed_feed_entry, "content", [])
                     if content_list:
