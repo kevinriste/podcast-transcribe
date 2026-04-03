@@ -1,6 +1,6 @@
 # podcast-transcribe
 
-![pipeline hero](docs/hero.png)
+![podcast-transcribe logo](docs/logo.png)
 
 Convert newsletters, articles, and YouTube videos into a personal podcast feed — automatically.
 
