@@ -3,6 +3,7 @@
 
 import logging
 import os
+from datetime import datetime
 
 import requests
 from google import genai
@@ -12,7 +13,7 @@ from mutagen.id3._util import ID3NoHeaderError  # noqa: PLC2701
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_MODEL = "gemini-3.1-flash-lite-preview"
+SUMMARY_MODEL = "gemini-3.1-flash-lite"
 
 _gemini_client: genai.Client | None = None
 
@@ -158,3 +159,15 @@ def apply_id3_tags(
     if source_url:
         tags.add(WXXX(encoding=3, desc="Source", url=source_url))  # pyright: ignore[reportUnknownMemberType]
     tags.save(mp3_path, v1=v1)  # pyright: ignore[reportUnknownMemberType]
+
+
+def set_file_pub_date(path: str, pub_date: datetime) -> None:
+    """Set a file's mtime to pub_date so Dropcaster orders episodes by it.
+
+    Dropcaster derives an episode's pubDate from the ID3 TRDA frame, but mutagen
+    cannot write TRDA, so it falls back to the file's modification time. Setting
+    mtime explicitly makes feed ordering deterministic (independent of the order
+    files happen to be synthesized in).
+    """
+    ts = pub_date.timestamp()
+    os.utime(path, (ts, ts))

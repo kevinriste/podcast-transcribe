@@ -1,3 +1,6 @@
+## Branch conventions
+- Design docs, specs, and implementation plans under `docs/superpowers/` are encouraged on feature branches but must not be merged to `main`. Delete all `docs/superpowers/` files before merging.
+
 ## Project Summary
 - Goal: Convert incoming emails/RSS into podcast episodes with TTS, and publish via Dropcaster.
 - Inputs: IMAP email (plain, link, youtube), RSS feeds.
@@ -59,5 +62,5 @@
 
 ## Common Tasks
 - Reprocess RSS entry: edit `rss/feed-guids/<FeedTitle>.txt` to older GUID.
-- Run RSS parser: `cd rss && /home/flog99/.local/bin/uv run python3 check-rss.py`
-- Run IMAP parser: `cd imap && /home/flog99/.local/bin/uv run python3 parse_email.py`
+- Run RSS parser: `cd rss && uv run python3 check-rss.py`
+- Run IMAP parser: `cd imap && uv run python3 parse_email.py`

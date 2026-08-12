@@ -1,0 +1,29 @@
+# RSS feeds to poll, with per-feed handling. Copy to feeds.yaml (gitignored)
+# and add your real feeds.
+#
+# scraper_url is the authenticated local scraper used by feeds with
+# mode: full_scraper (default: http://localhost:3002/fetch).
+scraper_url: http://localhost:3002/fetch
+
+feeds:
+  # Default handling: extract article text from the entry's content HTML.
+  - url: https://example.com/blog/rss.xml
+
+  # Another content-mode feed (mode defaults to "content" when omitted).
+  - url: https://example.org/another-blog/feed
+
+  # Podcast-style feed: use the entry summary/description as the body.
+  # seed_backfill seeds the "most recent" GUID N entries back on the first run
+  # so you don't re-read a long backlog when the feed is first added.
+  - url: https://feeds.example.com/some-podcast
+    mode: description
+    seed_backfill: 5
+
+  # Paywalled/JS-rendered source: fetch the full article via the authenticated
+  # scraper and verify completeness by requiring at least one check phrase
+  # (e.g. an author-bio line that only appears in the full article).
+  - url: https://news.example.com/columnist/rss.xml
+    mode: full_scraper
+    check_phrases:
+      - "is a columnist for"
+      - "has been writing since"

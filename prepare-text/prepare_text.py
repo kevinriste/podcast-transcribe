@@ -33,7 +33,7 @@ STATS_DIR = "stats"
 CONFIG_FILE = "filters.yaml"
 CHARACTER_LIMIT = 150000
 STATS_RETENTION_DAYS = 365
-LLM_MODEL = "gemini-3.1-flash-lite-preview"
+LLM_MODEL = "gemini-3.1-flash-lite"
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,9 @@ VALID_FLAGS = frozenset({"ignorecase", "multiline", "dotall"})
 CLEANING_STEPS = (
     "beehiiv_plaintext_conversion",
     "beehiiv_emphasis_removal",
+    "unwrap_hard_wraps",
+    "footnote_relocation",
+    "roman_numeral_normalization",
     "url_removal",
     "legal_bracket_unwrap",
     "triple_dash_removal",
@@ -120,6 +123,9 @@ class GeneralCleaningConfig(TypedDict, total=False):
 
     beehiiv_plaintext_conversion: bool
     beehiiv_emphasis_removal: bool
+    unwrap_hard_wraps: bool
+    footnote_relocation: bool
+    roman_numeral_normalization: bool
     url_removal: bool
     legal_bracket_unwrap: bool
     triple_dash_removal: bool
@@ -442,6 +448,171 @@ def clean_beehiiv_emphasis(text: str) -> str:
     return re.sub(r"_([^_]+)_", r"\1", without_double)
 
 
+def unwrap_hard_wraps(text: str) -> str:
+    """Unwrap hard-wrapped lines inside paragraphs while preserving paragraph breaks.
+
+    Specifically, replaces single newlines (not preceded or followed by other newlines)
+    with a single space, unless the paragraph looks like a list.
+
+    Returns:
+        The unwrapped text.
+
+    """
+    normalized = text.replace("\r\n", "\n")
+    paragraphs = re.split(r"\n{2,}", normalized)
+    unwrapped_paragraphs: list[str] = []
+    for p in paragraphs:
+        lines = p.split("\n")
+        if len(lines) <= 1:
+            unwrapped_paragraphs.append(p)
+            continue
+
+        is_list = False
+        list_match_count = 0
+        non_empty_lines = [line.strip() for line in lines if line.strip()]
+        if not non_empty_lines:
+            unwrapped_paragraphs.append(p)
+            continue
+
+        for line in non_empty_lines:
+            # Matches "- foo", "* foo", "1. foo", "1) foo", etc.
+            if re.match(r"^([-*•]|\d+[.)])\s", line):
+                list_match_count += 1
+
+        if list_match_count >= len(non_empty_lines) / 2:
+            is_list = True
+
+        if is_list:
+            unwrapped_paragraphs.append(p)
+        else:
+            unwrapped_line = " ".join(non_empty_lines)
+            unwrapped_paragraphs.append(unwrapped_line)
+
+    return "\n\n".join(unwrapped_paragraphs)
+
+
+_FOOTNOTE_DEF_RE = re.compile(r"^\[(\d+)\]\s+(.+)", re.DOTALL)
+
+
+def relocate_footnotes(text: str) -> tuple[str, int]:
+    """Move ``[n]`` footnote definitions inline to their reference point.
+
+    Footnote definitions are paragraphs whose text starts with ``[n]`` (as some
+    newsletters format their footnotes). Each is spliced in at its inline ``[n]``
+    reference, prefixed with a spoken "Footnote:" cue so a listener can tell an
+    aside from the main text. Markers sit at sentence boundaries in the source,
+    so in-place replacement reads as a between-sentence aside. Definitions with
+    no inline reference are left in place at the end. A no-op when the text has
+    no such footnote structure.
+
+    Returns:
+        A tuple of the transformed text and the number of footnotes relocated.
+
+    """
+    paragraphs = re.split(r"\n{2,}", text)
+    definitions: dict[str, str] = {}
+    body_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        match = _FOOTNOTE_DEF_RE.match(paragraph.strip())
+        if match:
+            definitions[match.group(1)] = " ".join(match.group(2).split())
+        else:
+            body_paragraphs.append(paragraph)
+
+    if not definitions:
+        return text, 0
+
+    body = "\n\n".join(body_paragraphs)
+    relocated = 0
+    for number, note in definitions.items():
+        marker = f"[{number}]"
+        index = body.find(marker)
+        if index == -1:
+            # No inline reference — keep the definition rather than lose content.
+            body = body.rstrip() + f"\n\n{marker} {note}"
+            continue
+        cue = f" Footnote: {note}" if note.endswith((".", "!", "?", "”")) else f" Footnote: {note}."
+        body = body[:index] + cue + body[index + len(marker) :]
+        # Drop any further bare references to the same footnote.
+        body = body.replace(marker, "")
+        relocated += 1
+    return body, relocated
+
+
+# Canonical Roman numerals only (rejects "IIII", "VV", etc.); no anchors so it
+# can be embedded with the line anchors below.
+_ROMAN_CORE = r"(?=[MDCLXVI])M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+# A numeral alone on its own line (optional whitespace) followed by a period —
+# i.e. a section header. The whole-line anchoring is what makes this collision-free.
+_ROMAN_HEADER_RE = re.compile(rf"(?m)^[ \t]*({_ROMAN_CORE})\.[ \t]*$")
+
+_CARDINAL_ONES = (
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+    "seventeen", "eighteen", "nineteen",
+)
+_CARDINAL_TENS = ("", "", "twenty", "thirty", "forty")
+
+
+def _roman_to_int(roman: str) -> int:
+    """Convert a canonical Roman numeral to its integer value.
+
+    Returns:
+        The integer value.
+
+    """
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    total = 0
+    previous = 0
+    for char in reversed(roman):
+        current = values[char]
+        if current < previous:
+            total -= current
+        else:
+            total += current
+            previous = current
+    return total
+
+
+def _cardinal_words(number: int) -> str:
+    """Spell a small non-negative integer (0-40) as words.
+
+    Returns:
+        The number in words (e.g. 14 -> "fourteen", 21 -> "twenty-one").
+
+    """
+    if number < 20:
+        return _CARDINAL_ONES[number]
+    tens, ones = divmod(number, 10)
+    return _CARDINAL_TENS[tens] + (f"-{_CARDINAL_ONES[ones]}" if ones else "")
+
+
+def normalize_roman_numerals(text: str) -> tuple[str, int]:
+    """Spell out Roman-numeral section headers that TTS voices as letters.
+
+    Converts a numeral alone on its own line (e.g. ``IV.``) to a spoken
+    ``Section four.`` — a common section-divider pattern, which Google Wavenet
+    otherwise reads as "eye-vee". Only canonical numerals in range
+    1-40 convert; the whole-line anchoring makes it collision-free (it can never
+    fire on ``IV`` mid-sentence, ``Mark IV`` or ``size XL``). A no-op otherwise.
+
+    Returns:
+        A tuple of the transformed text and the count of headers converted.
+
+    """
+    count = 0
+
+    def replace_header(match: re.Match[str]) -> str:
+        nonlocal count
+        value = _roman_to_int(match.group(1))
+        if not 1 <= value <= 40:
+            return match.group(0)
+        count += 1
+        return f"Section {_cardinal_words(value)}."
+
+    return _ROMAN_HEADER_RE.sub(replace_header, text), count
+
+
 def apply_general_cleaning(
     text: str,
     metadata: dict[str, str],
@@ -466,8 +637,8 @@ def apply_general_cleaning(
         # Then global config
         if key in gc_config:
             return bool(gc_config[key])  # pyright: ignore[reportUnknownArgumentType]
-        # All cleaning steps are enabled by default
-        return True
+        # All cleaning steps except unwrap_hard_wraps are enabled by default
+        return key != "unwrap_hard_wraps"
 
     def count_and_sub(pattern: str, replacement: str, text: str, key: str, flags: int = 0) -> str:
         matches = len(re.findall(pattern, text, flags=flags))
@@ -489,6 +660,25 @@ def apply_general_cleaning(
         if result != before_emphasis:
             stats["beehiiv_emphasis_removal"] = {"applied": True}
 
+    # Unwrap hard wraps (reconstruct paragraphs from line wraps)
+    if is_enabled("unwrap_hard_wraps"):
+        result = unwrap_hard_wraps(result)
+        stats["unwrap_hard_wraps"] = {"applied": True}
+
+    # Footnote relocation (move [n] definitions inline; before URL removal so the
+    # moved footnote text is cleaned uniformly with the rest of the body)
+    if is_enabled("footnote_relocation"):
+        result, relocated_count = relocate_footnotes(result)
+        if relocated_count:
+            stats["footnote_relocation"] = {"relocated": relocated_count}
+
+    # Roman-numeral normalization (spell out section headers + labelled numerals
+    # that TTS voices as letters; before URL removal so line structure is intact)
+    if is_enabled("roman_numeral_normalization"):
+        result, roman_count = normalize_roman_numerals(result)
+        if roman_count:
+            stats["roman_numeral_normalization"] = {"converted": roman_count}
+
     # URL removal
     if is_enabled("url_removal"):
         result = count_and_sub(
@@ -496,6 +686,13 @@ def apply_general_cleaning(
             "",
             result,
             "url_removal",
+        )
+        # Proprietary non-http(s) links (e.g. bbg://news/stories/ABC123).
+        result = count_and_sub(
+            r"<?bbg:\/\/[^\s>]*>?",
+            "",
+            result,
+            "bbg_url_removal",
         )
 
     # Legal bracket unwrap [t]he -> the
@@ -704,6 +901,20 @@ def load_config() -> PipelineConfig:
     return config
 
 
+def is_passthrough(metadata: dict[str, str]) -> bool:
+    """Return True for generated files that must skip content-mutating cleaning.
+
+    Comment-highlights episodes carry speaker-tagged segment markers whose
+    structure is load-bearing for multi-voice synthesis, so they pass through
+    raw -> cleaned untouched.
+
+    Returns:
+        True if the file must skip content-mutating cleaning.
+
+    """
+    return metadata.get("intake_type", "") == "archive-comments"
+
+
 def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict[str, FileStats]) -> None:
     """Filter, clean, and write a single raw text file."""
     filename = filepath.name
@@ -795,25 +1006,28 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         logging.info("Filtered: %s (reason: %s)", filename, filter_reason)
         return
 
-    # --- Apply cleaning ---
-    gc_stats: dict[str, dict[str, int | bool]] = {}
-    cleaned_text: str = apply_general_cleaning(
-        content_raw,
-        metadata,
-        config,
-        gc_stats,
-    )
-    file_stats["general_cleaning"] = gc_stats
+    # --- Apply cleaning (skipped entirely for passthrough files) ---
+    passthrough = is_passthrough(metadata)
+    cleaned_text: str = content_raw
+    if not passthrough:
+        gc_stats: dict[str, dict[str, int | bool]] = {}
+        cleaned_text = apply_general_cleaning(
+            content_raw,
+            metadata,
+            config,
+            gc_stats,
+        )
+        file_stats["general_cleaning"] = gc_stats
 
-    # YAML text removals
-    removal_stats: dict[str, dict[str, int]] = {}
-    cleaned_text = apply_text_removals(cleaned_text, config, removal_stats)
-    file_stats["text_removals"] = removal_stats
+        # YAML text removals
+        removal_stats: dict[str, dict[str, int]] = {}
+        cleaned_text = apply_text_removals(cleaned_text, config, removal_stats)
+        file_stats["text_removals"] = removal_stats
 
-    # YAML text replacements
-    replacement_stats: dict[str, dict[str, int]] = {}
-    cleaned_text = apply_text_replacements(cleaned_text, config, replacement_stats)
-    file_stats["text_replacements"] = replacement_stats
+        # YAML text replacements
+        replacement_stats: dict[str, dict[str, int]] = {}
+        cleaned_text = apply_text_replacements(cleaned_text, config, replacement_stats)
+        file_stats["text_replacements"] = replacement_stats
 
     # Check empty (before adding header/footer, which would mask empty content)
     if not cleaned_text.strip():
@@ -840,15 +1054,17 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         )
         return
 
-    # Prepend and append author + title
-    from_name = metadata.get("from", "").strip()
-    title = metadata.get("title", "").strip()
-    header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
-    footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
-    if header:
-        cleaned_text = header + "\n" + cleaned_text
-    if from_name or title:
-        cleaned_text = cleaned_text.rstrip() + footer
+    # Prepend and append author + title (skipped for passthrough files, whose
+    # body is already exactly the speaker-tagged text the synthesizer expects)
+    if not passthrough:
+        from_name = metadata.get("from", "").strip()
+        title = metadata.get("title", "").strip()
+        header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
+        footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
+        if header:
+            cleaned_text = header + "\n" + cleaned_text
+        if from_name or title:
+            cleaned_text = cleaned_text.rstrip() + footer
 
     # Check too-big
     if len(cleaned_text) >= CHARACTER_LIMIT:

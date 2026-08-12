@@ -1,0 +1,5 @@
+# Primary Dropcaster feed metadata. Copy to channel.yml (gitignored) and set
+# your own title, description, and cover image filename.
+:title: 'Example Podcast'
+:description: 'A short description of your feed.'
+:image_url: 'cover.jpg'

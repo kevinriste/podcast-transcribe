@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- Landing page for the primary feed. Copy to index.html (gitignored) and
+     customize the title, description, and cover image. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Example Podcast</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin:0; display:flex; align-items:center; justify-content:center;
+           background:#0a0c12; color:#e6e9f0; font-family:Georgia,'Times New Roman',serif;
+           padding:1rem; min-height:100vh; min-height:100dvh; }
+    .card { width:100%; max-width:420px; text-align:center; display:flex; flex-direction:column;
+            align-items:center; justify-content:center; gap:.7rem; }
+    .cover { width:auto; height:auto; max-width:min(340px,72vw);
+             max-height:52vh; max-height:52dvh; border-radius:14px;
+             box-shadow:0 12px 40px rgba(0,0,0,.6); }
+    h1 { font-size:clamp(1.4rem,6vw,2rem); margin:0; letter-spacing:.02em; }
+    p.desc { color:#aab2c4; line-height:1.45; margin:0; font-style:italic;
+             font-size:clamp(.85rem,3.6vw,1rem); max-width:34ch; }
+    a.rss { display:inline-block; text-decoration:none; color:#0a0c12; background:#d8a13a;
+            padding:.55rem 1.3rem; border-radius:999px; font-family:system-ui,sans-serif; font-weight:600; }
+    a.rss:hover { filter:brightness(1.08); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <img class="cover" src="cover.jpg" alt="Example Podcast cover art">
+    <h1>Example Podcast</h1>
+    <p class="desc">A short description of your feed.</p>
+    <a class="rss" href="index.rss">RSS Feed</a>
+  </main>
+</body>
+</html>

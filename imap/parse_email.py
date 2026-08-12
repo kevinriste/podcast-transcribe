@@ -4,12 +4,14 @@ import logging
 import os
 import pathlib
 import re
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 if TYPE_CHECKING:
     from yt_dlp import _Params  # pyright: ignore[reportPrivateUsage]
 
+import yaml
 import yt_dlp
 from bs4 import BeautifulSoup
 from imap_tools.consts import MailMessageFlags
@@ -25,8 +27,116 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 output_folder = "../prepare-text/text-input-raw"
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
-local_scraper_url = "http://localhost:3001/fetch"
-nyt_scraper_url = "http://localhost:3002/fetch"
+sources_config_file = "sources.yaml"
+DEFAULT_GENERAL_SCRAPER = "http://localhost:3001/fetch"
+DEFAULT_AUTHENTICATED_SCRAPER = "http://localhost:3002/fetch"
+
+
+@dataclass(slots=True)
+class CustomSource:
+    """A publisher-specific email source matched by sender, beyond Beehiiv/Substack.
+
+    Built-in platform detection (Beehiiv via the x-beehiiv-ids header, Substack as
+    the default) covers most newsletters; custom sources handle publishers that
+    need their own link-finding or HTML-body extraction.
+    """
+
+    kind: str
+    match_sender: tuple[str, ...]
+    use_html_body: bool
+    web_version_link_text: tuple[str, ...]
+    source_url_includes: tuple[str, ...]
+    source_url_excludes: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class ScraperConfig:
+    """Scraper endpoints for the "link" intake."""
+
+    general_url: str
+    authenticated_url: str
+    authenticated_domains: tuple[str, ...]
+
+
+@dataclass(slots=True)
+class ImapConfig:
+    """Loaded imap configuration: custom sources plus scraper endpoints."""
+
+    sources: list[CustomSource]
+    scrapers: ScraperConfig
+
+
+class SourceEntry(TypedDict, total=False):
+    """A single entry under sources: in sources.yaml."""
+
+    kind: str
+    match_sender: list[str]
+    use_html_body: bool
+    web_version_link_text: list[str]
+    source_url_includes: list[str]
+    source_url_excludes: list[str]
+
+
+class ScrapersEntry(TypedDict, total=False):
+    """The scrapers: section of sources.yaml."""
+
+    general_url: str
+    authenticated_url: str
+    authenticated_domains: list[str]
+
+
+class SourcesConfig(TypedDict, total=False):
+    """The sources.yaml document."""
+
+    sources: list[SourceEntry]
+    scrapers: ScrapersEntry
+
+
+def load_imap_config() -> ImapConfig:
+    """Load custom sources and scraper endpoints from sources.yaml.
+
+    Returns:
+        The parsed config; empty sources and default scraper endpoints when the
+        file or a section is absent.
+
+    """
+    default_scrapers = ScraperConfig(DEFAULT_GENERAL_SCRAPER, DEFAULT_AUTHENTICATED_SCRAPER, ())
+    config_path = pathlib.Path(sources_config_file)
+    if not config_path.exists():
+        return ImapConfig(sources=[], scrapers=default_scrapers)
+    config: SourcesConfig = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    sources = [
+        CustomSource(
+            kind=entry.get("kind", "custom"),
+            match_sender=tuple(s.casefold() for s in entry.get("match_sender", [])),
+            use_html_body=entry.get("use_html_body", False),
+            web_version_link_text=tuple(normalize_text(s) for s in entry.get("web_version_link_text", [])),
+            source_url_includes=tuple(entry.get("source_url_includes", [])),
+            source_url_excludes=tuple(entry.get("source_url_excludes", [])),
+        )
+        for entry in config.get("sources", [])
+    ]
+    scraper_entry = config.get("scrapers", {})
+    scrapers = ScraperConfig(
+        general_url=scraper_entry.get("general_url", DEFAULT_GENERAL_SCRAPER),
+        authenticated_url=scraper_entry.get("authenticated_url", DEFAULT_AUTHENTICATED_SCRAPER),
+        authenticated_domains=tuple(scraper_entry.get("authenticated_domains", [])),
+    )
+    return ImapConfig(sources=sources, scrapers=scrapers)
+
+
+def match_custom_source(sources: list[CustomSource], from_email: str, from_name: str) -> CustomSource | None:
+    """Return the first custom source whose match_sender matches the sender.
+
+    Returns:
+        The matching CustomSource, or None when no custom source applies.
+
+    """
+    sender = f"{from_email} {from_name}".casefold()
+    for source in sources:
+        if any(needle in sender for needle in source.match_sender):
+            return source
+    return None
 
 
 def extract_title(obj: object) -> str:
@@ -116,8 +226,54 @@ def extract_links_from_email(msg: MailMessage) -> list[dict[str, str]]:
     return deduped
 
 
-def find_source_url(links: list[dict[str, str]], source_kind: str, subject: str) -> str:
+_BLOCK_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
+_LIST_MARKER_RE = re.compile(r"^\s*[*•\-]\s+")
+
+
+def extract_body_from_html(msg: MailMessage) -> str | None:
+    """Extract readable body text from an email's HTML part.
+
+    Walks block-level elements and joins them with blank lines, preserving
+    paragraph and list structure. Text within each block is extracted without
+    stripping (then whitespace-normalised) so that whitespace around inline
+    hyperlinks is retained — this is what prevents anchor text from fusing onto
+    adjacent words, the root cause of some publishers' plain-text word-joins.
+
+    Returns:
+        The extracted body text, or None if there is no HTML or no text.
+
+    """
+    if not msg.html:
+        return None
+    soup = BeautifulSoup(msg.html, "html.parser")
+    for tag in soup(["style", "script", "head"]):  # pyright: ignore[reportAny]
+        tag.decompose()  # pyright: ignore[reportAny]
+    blocks: list[str] = []
+    previous: str | None = None
+    for element in soup.find_all(_BLOCK_TAGS):  # pyright: ignore[reportAny]
+        if element.find(_BLOCK_TAGS):  # pyright: ignore[reportAny] — skip blocks nested in blocks (dedupe table nesting)
+            continue
+        text = " ".join(element.get_text("").split())  # pyright: ignore[reportAny]
+        text = _LIST_MARKER_RE.sub("", text)
+        if not text or text == previous:  # drop empties and consecutive duplicates
+            continue
+        previous = text
+        blocks.append(text)
+    if not blocks:
+        return None
+    return "\n\n".join(blocks)
+
+
+def find_source_url(
+    links: list[dict[str, str]],
+    source_kind: str,
+    subject: str,
+    custom: CustomSource | None = None,
+) -> str:
     """Find the best source URL from email links based on the newsletter platform.
+
+    Built-in handling covers Beehiiv and Substack; a matched ``custom`` source
+    uses its configured web-version link text plus include/exclude href filters.
 
     Returns:
         The source URL, or empty string if none found.
@@ -125,6 +281,19 @@ def find_source_url(links: list[dict[str, str]], source_kind: str, subject: str)
     """
     subject_norm = normalize_text(subject)
     logging.info("Selecting source URL for %s email", source_kind)
+    if custom is not None:
+        for link in links:
+            if normalize_text(link["text"]) in custom.web_version_link_text:
+                logging.info("Found %s web-version link", source_kind)
+                return link["href"]
+        for link in links:
+            href = link["href"]
+            if any(inc in href for inc in custom.source_url_includes) and not any(
+                exc in href for exc in custom.source_url_excludes
+            ):
+                logging.info("Found %s link: %s", source_kind, href)
+                return href
+        return ""
     if source_kind == "beehiiv":
         for link in links:
             if normalize_text(link["text"]) == "read online":
@@ -232,6 +401,7 @@ def main() -> None:
     if not gmail_user or not gmail_password:
         logging.error("Gmail credentials not set")
         return
+    imap_config = load_imap_config()
     with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         msgs = mailbox.fetch(AND(seen=False), mark_seen=False)  # pyright: ignore[reportUnknownMemberType]
         for msg in msgs:
@@ -255,9 +425,25 @@ def main() -> None:
                     logging.info("parsing email: %s", output_filename)
                     email_text_raw = msg.text
                     has_beehiiv = bool(msg.headers.get("x-beehiiv-ids"))
-                    source_kind = "beehiiv" if has_beehiiv else "substack"
+                    custom_source: CustomSource | None = None
+                    if has_beehiiv:
+                        source_kind = "beehiiv"
+                    elif (
+                        custom_source := match_custom_source(imap_config.sources, from_email, from_name_raw)
+                    ) is not None:
+                        source_kind = custom_source.kind
+                        if custom_source.use_html_body:
+                            # Some publishers fuse hyperlink anchors onto adjacent words in
+                            # the plain-text part; extract from HTML, falling back to plain.
+                            html_body = extract_body_from_html(msg)
+                            if html_body:
+                                email_text_raw = html_body
+                            else:
+                                logging.warning("No HTML body for %s email; using plain text", source_kind)
+                    else:
+                        source_kind = "substack"
                     all_links = extract_links_from_email(msg)
-                    source_url = find_source_url(all_links, source_kind, subject_raw)
+                    source_url = find_source_url(all_links, source_kind, subject_raw, custom_source)
                     if not source_url:
                         source_kind = "unknown"
                         send_gotify_notification(
@@ -318,7 +504,9 @@ def main() -> None:
                     url_text_compact = re.sub(r"[^\S]+", "", email_text_raw)
                     logging.info("fetching webpage: %s", url_text_compact)
                     original_url = url_text_compact
-                    scraper_url = nyt_scraper_url if "nytimes.com" in original_url else local_scraper_url
+                    scrapers = imap_config.scrapers
+                    use_authenticated = any(domain in original_url for domain in scrapers.authenticated_domains)
+                    scraper_url = scrapers.authenticated_url if use_authenticated else scrapers.general_url
                     html_content_parsed_for_title, webpage_text = fetch_and_process_html(
                         url=scraper_url,
                         request_body={"url": original_url},

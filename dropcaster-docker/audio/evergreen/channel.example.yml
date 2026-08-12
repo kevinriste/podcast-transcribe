@@ -1,0 +1,10 @@
+# Second ("evergreen") Dropcaster feed metadata.
+#
+# Copy to channel.yml (gitignored) and set your own title/description/cover.
+# This feed lives in dropcaster-docker/audio/evergreen and is served at
+# <domain>/evergreen; Dropcaster globs *.mp3 non-recursively, so the main feed
+# never picks these up. See resolve_feed_dir() in text-to-speech/text_to_speech.py
+# for which episodes are routed here.
+:title: 'Evergreen'
+:description: 'Long-form pieces kept around for whenever you are ready — no rush.'
+:image_url: 'evergreen/evergreen-cover.jpg'

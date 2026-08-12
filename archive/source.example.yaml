@@ -1,0 +1,13 @@
+# Source configuration for the scheduled archive-intake tool (check-archive.py).
+#
+# Copy to source.yaml (gitignored) and set your source's display name. If
+# source.yaml is absent, the display name falls back to "Archive".
+#
+# posts.json (gitignored) holds the chronological list of posts to walk through,
+# one per day; each entry is {"title": ..., "url": ...}.
+
+# Display name written to META_FROM for every episode from this source.
+source_name: Example Blog
+
+# Path to the JSON list of posts (default: posts.json).
+posts_file: posts.json

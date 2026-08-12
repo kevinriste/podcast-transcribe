@@ -1,0 +1,38 @@
+# Custom email-source classification for parse_email.py. Copy to sources.yaml
+# (gitignored) and add your own publishers.
+#
+# Built-in platform detection already handles Beehiiv (via the x-beehiiv-ids
+# header) and Substack (the default), so you only need entries here for
+# publishers that require their own link-finding or HTML-body extraction.
+
+sources:
+  # Example: a publisher whose plain-text part fuses link anchors onto adjacent
+  # words, so we extract from the HTML part and find the canonical web link.
+  - kind: html_newsletter
+    # Substrings matched (case-insensitive) against the sender email or name.
+    match_sender:
+      - examplepublisher.com
+      - Example Columnist
+    # Extract from the HTML part instead of plain text (falls back to plain text).
+    use_html_body: true
+    # Normalized anchor text (lowercased, whitespace-collapsed) linking to the
+    # canonical web version of the newsletter.
+    web_version_link_text:
+      - view in browser
+      - read online
+    # Accept links whose href contains any of these substrings...
+    source_url_includes:
+      - examplepublisher.com
+      - exmpl.co
+    # ...but reject links whose href contains any of these (tracking/redirects).
+    source_url_excludes:
+      - track.examplepublisher.com
+
+# Scraper endpoints for the "link" intake. URLs whose host matches an
+# authenticated domain use the authenticated scraper (which logs in); everything
+# else uses the general scraper.
+scrapers:
+  general_url: http://localhost:3001/fetch
+  authenticated_url: http://localhost:3002/fetch
+  authenticated_domains:
+    - news.example.com

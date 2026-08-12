@@ -1,26 +1,22 @@
 [project]
-name = "rss"
+name = "archive"
 version = "0.1.0"
-description = "Add your description here"
+description = "Scheduled intake for a blog/archive (one post per day)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "beautifulsoup4>=4.12.3",
-    "feedparser>=6.0.11",
-    "msgspec>=0.19.0",
-    "playwright>=1.49.1",
     "podcast-shared",
-    "python-dateutil>=2.9.0.post0",
-    "pyyaml>=6.0.0",
+    "requests>=2.34.2",
     "trafilatura>=2.0.0",
+    "beautifulsoup4>=4.12.0",
+    "openai>=1.60.0",
+    "pyyaml>=6.0.0",
 ]
 
 [dependency-groups]
 dev = [
     "basedpyright>=1.20.0",
     "ruff>=0.7.0",
-    "types-beautifulsoup4>=4.12.0",
-    "types-python-dateutil>=2.9.0",
 ]
 
 [tool.ruff]

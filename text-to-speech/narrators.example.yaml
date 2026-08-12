@@ -1,0 +1,65 @@
+# Per-source narrator selection for text_to_speech.py.
+#
+# Copy to narrators.yaml (gitignored) and add your real rules. If narrators.yaml
+# is absent, every file is synthesized with the default Google Cloud TTS Wavenet
+# voice, exactly as before.
+#
+# Rules are checked in order against the META_FROM header (case-insensitive
+# substring match); the first match wins. Files that match a gemini-* rule are
+# synthesized through the Gemini Batch API (~50% cheaper than standard calls):
+# the job is submitted on one cron run and collected on a later one, so those
+# episodes publish with a delay of one or more cron intervals.
+#
+# Engines:
+#   wavenet          - Google Cloud TTS en-US-Wavenet-F, synchronous (the default)
+#   gemini-flash     - gemini-2.5-flash-preview-tts via Batch API (cheapest)
+#   gemini-pro       - gemini-2.5-pro-preview-tts via Batch API
+#   gemini-3.1-flash - gemini-3.1-flash-tts-preview via Batch API (newest)
+#
+# To audition a model/voice combination on one article without touching this
+# config, use audition.py.
+
+# Gemini prebuilt voice used when a rule has no voice of its own.
+default_voice: Sulafat
+
+narrators:
+  - match_from: Example Author
+    engine: gemini-pro
+
+  - match_from: Some Other Newsletter
+    engine: gemini-flash
+    voice: Kore
+    style_prompt: "Read in a brisk, cheerful tone."
+
+  # Explicit wavenet rule; useful to pin a source above a broader match below it.
+  - match_from: A Third Publication
+    engine: wavenet
+
+# Voices for comment-highlights episodes (multi-voice, Google Cloud TTS).
+# The narrator reads framing and each "<name> wrote:" attribution; quote_pool
+# voices read the verbatim comment text (assigned deterministically per commenter,
+# so a given commenter is consistent within an episode). Use any Google Cloud TTS
+# voice names; flip the tier here with no code change (en-US-Wavenet-*,
+# en-US-Neural2-*, en-US-Studio-*, en-US-Chirp3-HD-*). Omit this section to use
+# the WaveNet defaults.
+comment_voices:
+  narrator: en-US-Wavenet-F
+  quote_pool:
+    - en-US-Wavenet-D
+    - en-US-Wavenet-C
+    - en-US-Wavenet-A
+    - en-US-Wavenet-E
+
+# Optional second ("evergreen") feed for long-form/backlog episodes. Episodes
+# whose META_FROM matches a whole_source always route there; length_gated_sources
+# route there only when the word count reaches length_gate_words. Omit this
+# section (or leave both lists empty) to send every episode to the topical feed.
+# dir_name is the subdirectory of dropcaster-docker/audio/ (default: evergreen).
+evergreen_feed:
+  dir_name: evergreen
+  whole_sources:
+    - Example Long-form Blog
+    - Another Evergreen Source
+  length_gated_sources:
+    - Occasional Long Read Author
+  length_gate_words: 2000

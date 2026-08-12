@@ -1,9 +1,14 @@
 #!/bin/bash
 
-FIRST_LOG_DATE=$(TZ='America/Chicago' date +%FT%T.%3N%:z)
-RUN_LOG="/home/flog99/process-log-runs/${FIRST_LOG_DATE}.log"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$REPO_DIR/.env" ]; then set -a; . "$REPO_DIR/.env"; set +a; fi
 
-RUN_LOG="$RUN_LOG" bash /home/flog99/dev/podcast-transcribe/process.sh $FIRST_LOG_DATE 2>&1
+FIRST_LOG_DATE=$(TZ="${TZ:-UTC}" date +%FT%T.%3N%:z)
+LOG_DIR="${LOG_DIR:-$HOME/podcast-transcribe-logs}"
+mkdir -p "$LOG_DIR"
+RUN_LOG="$LOG_DIR/${FIRST_LOG_DATE}.log"
+
+RUN_LOG="$RUN_LOG" bash "$REPO_DIR/process.sh" "$FIRST_LOG_DATE" 2>&1
 exit_code=${PIPESTATUS[0]}
 if [ "$exit_code" -ne 0 ]; then
     debug_message="Podcast Transcribe error: process.sh exit code $exit_code"

@@ -13,7 +13,7 @@ flowchart TB
     subgraph intake ["Intake"]
         direction TB
         gmail["Gmail IMAP<br/><small>unseen messages</small>"]
-        rss_feeds["RSS Feeds<br/><small>NYT, Megaphone</small>"]
+        rss_feeds["RSS Feeds<br/><small>configured in feeds.yaml</small>"]
 
         gmail --> email_route{subject?}
         email_route -->|default| newsletters["Newsletter Parser<br/><small>Substack / Beehiiv detection<br/>source URL extraction</small>"]
@@ -87,10 +87,11 @@ flowchart TB
 | Source | Method | Details |
 |--------|--------|---------|
 | **Substack/Beehiiv newsletters** | Gmail IMAP | Auto-detected via headers and link patterns |
+| **Custom publishers** | Gmail IMAP | Sender-matched rules in `imap/sources.yaml` (HTML-body extraction, link-finding) |
 | **Article links** | Email with subject "link" | Fetched via headless Chromium (Playwright) + trafilatura |
 | **YouTube** | Email with subject "youtube" | Audio downloaded via yt-dlp, bypasses TTS pipeline |
-| **NYT columns** | RSS via Wayback Machine | Ross Douthat, Ezra Klein |
-| **Bill Simmons Podcast** | RSS (Megaphone) | Description extracted, NFL episodes flagged via Gemini LLM |
+| **RSS feeds** | RSS, configured in `rss/feeds.yaml` | Per-feed handling: full-article scraper, description, or content extraction |
+| **Blog/archive** | Scheduled, one post per day | `archive/check-archive.py` walks `posts.json`, optional comment-highlights episodes |
 
 ## Text Format
 
@@ -120,7 +121,7 @@ Article text content starts here...
 - **Voice**: `en-US-Wavenet-F`, MP3 encoding
 - **Chunking**: 3,000-5,000 characters, split at punctuation/whitespace boundaries
 - **Stitching**: pydub `AudioSegment` concatenation
-- **Summary**: Gemini `gemini-3.1-flash-lite-preview` generates a 2-3 sentence description
+- **Summary**: Gemini `gemini-3.1-flash-lite` generates a 2-3 sentence description
 
 ## Tagging & Publishing
 
