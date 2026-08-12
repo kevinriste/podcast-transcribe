@@ -181,7 +181,16 @@ def _post_model(prompt: str) -> str | None:
         return None
     try:
         client = OpenAI(api_key=key, max_retries=6)
-        response = client.responses.create(model=MODEL, input=prompt, timeout=300)
+        # gpt-5.6+ bills cache writes at 1.25x the input rate. Each briefing prompt is
+        # unique (a post's own comments), so implicit caching only ever writes and never
+        # reads it back — pure cost, no benefit. Explicit mode with no breakpoints opts
+        # out of implicit caching, so no cache-write charges are incurred.
+        response = client.responses.create(
+            model=MODEL,
+            input=prompt,
+            timeout=300,
+            prompt_cache_options={"mode": "explicit"},
+        )
     except OpenAIError:
         logging.exception("Comment briefing request failed")
         return None
