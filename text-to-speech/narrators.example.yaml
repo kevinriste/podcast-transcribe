@@ -35,13 +35,13 @@ narrators:
   - match_from: A Third Publication
     engine: wavenet
 
-# Voices for comment-highlights episodes (multi-voice, Google Cloud TTS).
-# The narrator reads framing and each "<name> wrote:" attribution; quote_pool
-# voices read the verbatim comment text (assigned deterministically per commenter,
-# so a given commenter is consistent within an episode). Use any Google Cloud TTS
-# voice names; flip the tier here with no code change (en-US-Wavenet-*,
-# en-US-Neural2-*, en-US-Studio-*, en-US-Chirp3-HD-*). Omit this section to use
-# the WaveNet defaults.
+# Voices for multi-voice episodes (Google Cloud TTS): comment-highlights episodes
+# and WaveNet articles that embed block quotations. The narrator reads framing/body
+# (and, for comments, each "<name> wrote:" attribution); quote_pool voices read the
+# quoted text, assigned deterministically (per commenter, or per distinct block quote)
+# so a given voice is stable within an episode. Use any Google Cloud TTS voice names;
+# flip the tier here with no code change (en-US-Wavenet-*, en-US-Neural2-*,
+# en-US-Studio-*, en-US-Chirp3-HD-*). Omit this section to use the WaveNet defaults.
 comment_voices:
   narrator: en-US-Wavenet-F
   quote_pool:

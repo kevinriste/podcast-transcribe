@@ -31,12 +31,14 @@ from podcast_shared import (
 )
 from pydub import AudioSegment
 
-from comment_voices import (
+from multivoice import (
     DEFAULT_NARRATOR_VOICE,
     DEFAULT_QUOTE_POOL,
     parse_segments,
+    plan_article_utterances,
     plan_utterances,
-    render_comment_episode,
+    render_utterances,
+    strip_markers,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -552,6 +554,29 @@ def is_comment_episode(metadata: dict[str, str]) -> bool:
     return metadata.get("intake_type", "") == "archive-comments"
 
 
+# An article needs at least this many block quotes before it is worth rendering with
+# distinct quote voices; below it, the extra voices add noise, not signal.
+MIN_BLOCKQUOTE_RUNS = 1
+
+
+def article_multivoice_plan(content_text: str, engine: str) -> list[tuple[str, str]] | None:
+    """Return a narrator/quote utterance plan when an article qualifies for multi-voice.
+
+    Only WaveNet episodes qualify (the shared renderer is Google Cloud TTS), and only
+    when the body holds at least ``MIN_BLOCKQUOTE_RUNS`` block quotes — so plain essays
+    with no quotes stay single-voice.
+
+    Returns:
+        The ``(text, speaker)`` plan, or None when the episode should stay single-voice.
+
+    """
+    if engine != "wavenet":
+        return None
+    utterances = plan_article_utterances(content_text)
+    quote_runs = sum(1 for _, speaker in utterances if speaker != "NARRATOR")
+    return utterances if quote_runs >= MIN_BLOCKQUOTE_RUNS else None
+
+
 def load_comment_voices() -> tuple[str, list[str]]:
     """Load the comment-episode narrator + quote-voice pool from narrators.yaml.
 
@@ -686,7 +711,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
             metadata.get("title", "").strip(),
             article_summary,
         )
-        segments = render_comment_episode(utterances, narrator_voice, quote_pool)
+        segments = render_utterances(utterances, narrator_voice, quote_pool)
         if not segments:
             logging.error("No audio synthesized for comment episode %s; skipping", incoming_path.name)
             send_gotify_notification("Comment episode failed", f"No audio for {incoming_path.name}")
@@ -695,12 +720,28 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
         incoming_path.unlink()
         return
     rule = resolve_narrator(metadata, rules)
+    # Articles that embed block quotes get the same multi-voice treatment as comment
+    # episodes when they clear the density gate; the marker is stripped for every other
+    # path so it is never spoken.
+    plan = article_multivoice_plan(content_text, rule.engine)
+    clean_content = strip_markers(content_text)
+    if plan is not None:
+        quote_count = sum(1 for _, speaker in plan if speaker != "NARRATOR")
+        logging.info("Routing %s to multi-voice article synthesis (%d quotes)", incoming_path.name, quote_count)
+        narrator_voice, quote_pool = load_comment_voices()
+        segments = render_utterances(plan, narrator_voice, quote_pool)
+        if segments:
+            finalize_episode(name, metadata, clean_content, segments)
+            incoming_path.unlink()
+            return
+        logging.error("No audio for multi-voice article %s; falling back to single voice", incoming_path.name)
+        send_gotify_notification("Article multi-voice failed", f"Falling back to single voice for {incoming_path.name}")
     if rule.engine in GEMINI_TTS_MODELS:
         logging.info("Routing %s to %s (voice %s)", incoming_path.name, rule.engine, rule.voice)
-        submit_gemini_batch(incoming_path, content_text, rule)
+        submit_gemini_batch(incoming_path, clean_content, rule)
         return
-    segments = synthesize_wavenet(content_text)
-    finalize_episode(name, metadata, content_text, segments)
+    segments = synthesize_wavenet(clean_content)
+    finalize_episode(name, metadata, clean_content, segments)
     logging.info("Removing original text file")
     incoming_path.unlink()
 

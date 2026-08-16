@@ -19,7 +19,7 @@ from imap_tools.mailbox import MailBox
 from imap_tools.message import MailMessage
 from imap_tools.query import AND
 from playwright.sync_api import sync_playwright
-from podcast_shared import apply_id3_tags, generate_summary, send_gotify_notification
+from podcast_shared import BLOCKQUOTE_MARKER, apply_id3_tags, generate_summary, send_gotify_notification
 from trafilatura import bare_extraction, extract
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -233,19 +233,31 @@ _LIST_MARKER_RE = re.compile(r"^\s*[*•\-]\s+")
 def extract_body_from_html(msg: MailMessage) -> str | None:
     """Extract readable body text from an email's HTML part.
 
+    Returns:
+        The extracted body text, or None if there is no HTML or no text.
+
+    """
+    return extract_body_text(msg.html)
+
+
+def extract_body_text(html: str | None) -> str | None:
+    """Extract readable body text from an HTML string.
+
     Walks block-level elements and joins them with blank lines, preserving
     paragraph and list structure. Text within each block is extracted without
     stripping (then whitespace-normalised) so that whitespace around inline
     hyperlinks is retained — this is what prevents anchor text from fusing onto
     adjacent words, the root cause of some publishers' plain-text word-joins.
+    Block quotations (the element, or a paragraph inside one) are prefixed with
+    ``BLOCKQUOTE_MARKER`` so later stages can voice them distinctly.
 
     Returns:
         The extracted body text, or None if there is no HTML or no text.
 
     """
-    if not msg.html:
+    if not html:
         return None
-    soup = BeautifulSoup(msg.html, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["style", "script", "head"]):  # pyright: ignore[reportAny]
         tag.decompose()  # pyright: ignore[reportAny]
     blocks: list[str] = []
@@ -258,7 +270,10 @@ def extract_body_from_html(msg: MailMessage) -> str | None:
         if not text or text == previous:  # drop empties and consecutive duplicates
             continue
         previous = text
-        blocks.append(text)
+        # Mark quoted passages (the block, or a paragraph inside one) so downstream
+        # stages can voice them distinctly; compare unmarked text above for dedupe.
+        is_quote = element.name == "blockquote" or element.find_parent("blockquote") is not None  # pyright: ignore[reportAny]
+        blocks.append(f"{BLOCKQUOTE_MARKER}{text}" if is_quote else text)
     if not blocks:
         return None
     return "\n\n".join(blocks)
@@ -442,6 +457,14 @@ def main() -> None:
                                 logging.warning("No HTML body for %s email; using plain text", source_kind)
                     else:
                         source_kind = "substack"
+                        # Substack's plain-text part is lossy (truncated) and flattens block
+                        # quotes; extract from HTML to recover full content and mark quotes,
+                        # falling back to plain text when there is no HTML part.
+                        html_body = extract_body_from_html(msg)
+                        if html_body:
+                            email_text_raw = html_body
+                        else:
+                            logging.warning("No HTML body for %s email; using plain text", source_kind)
                     all_links = extract_links_from_email(msg)
                     source_url = find_source_url(all_links, source_kind, subject_raw, custom_source)
                     if not source_url:

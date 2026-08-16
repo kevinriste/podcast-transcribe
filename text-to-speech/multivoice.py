@@ -1,10 +1,18 @@
-"""Multi-voice helpers for comment-highlights episodes.
+"""Multi-voice rendering shared by comment-highlights episodes and block-quote articles.
 
-Parses the speaker-tagged briefing (NARRATOR / QUOTE <name> segments) and renders
-it through Google Cloud TTS: the narrator voice speaks framing plus each quote's
-attribution ("<name> wrote:"), and a configurable rotating pool of quote voices
-reads the verbatim comment text. Voices are configured in narrators.yaml so the
-tier can be flipped without code changes.
+The shared core is a list of ``(text, speaker)`` utterances rendered through Google
+Cloud TTS, where ``assign_voice`` maps each speaker to a stable voice (the narrator
+voice for ``"NARRATOR"``, otherwise a deterministic pick from a rotating quote pool)
+and ``render_utterances`` synthesizes them. Each concept supplies its own planner
+that turns source content into utterances:
+
+- comment briefings: ``parse_segments`` + ``plan_utterances`` (speaker-tagged
+  NARRATOR / QUOTE <name> briefing, with "<name> wrote:" attributions);
+- block-quote articles: ``plan_article_utterances`` (body text with block quotes
+  marked by ``BLOCKQUOTE_MARKER``, each distinct quote read in a varied voice).
+
+Voices are configured in narrators.yaml so the tier can be flipped without code
+changes.
 """
 
 import hashlib
@@ -14,7 +22,20 @@ import re
 
 from google.api_core.exceptions import InvalidArgument
 from google.cloud import texttospeech
+from podcast_shared import BLOCKQUOTE_MARKER
 from pydub import AudioSegment
+
+__all__ = [
+    "BLOCKQUOTE_MARKER",
+    "DEFAULT_NARRATOR_VOICE",
+    "DEFAULT_QUOTE_POOL",
+    "assign_voice",
+    "parse_segments",
+    "plan_article_utterances",
+    "plan_utterances",
+    "render_utterances",
+    "strip_markers",
+]
 
 # Defaults (overridable via narrators.yaml `comment_voices:`). Narrator matches the
 # article default (en-US-Wavenet-F); quote pool is other WaveNet speakers.
@@ -89,6 +110,55 @@ def plan_utterances(
     return out
 
 
+def plan_article_utterances(body: str, marker: str = BLOCKQUOTE_MARKER) -> list[tuple[str, str]]:
+    """Turn article body text into ``(text, speaker)`` utterances for multi-voice render.
+
+    Lines the intake prefixed with ``marker`` are quoted passages; everything else is
+    the author's own words, spoken by the narrator. Consecutive quote lines merge into
+    one utterance so a multi-paragraph quote is read in a single voice. Each quote's
+    speaker key is its own text, so distinct quotes get deterministically varied voices
+    via ``assign_voice`` — the same mechanism the comment path uses for commenter names.
+
+    Returns:
+        Ordered ``(text, speaker)`` pairs; speaker is ``"NARRATOR"`` or the quote text.
+
+    """
+    marker_key = marker.strip()
+    out: list[tuple[str, str]] = []
+    quote_run: list[str] = []
+
+    def flush_quote() -> None:
+        if quote_run:
+            quote_text = " ".join(quote_run)
+            out.append((quote_text, quote_text))
+            quote_run.clear()
+
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith(marker_key):
+            quote_run.append(line[len(marker_key) :].strip())
+        else:
+            flush_quote()
+            out.append((line, "NARRATOR"))
+    flush_quote()
+    return out
+
+
+def strip_markers(text: str, marker: str = BLOCKQUOTE_MARKER) -> str:
+    """Remove block-quote markers, leaving the quoted text and layout intact.
+
+    Used by the single-voice paths so the marker is never spoken when an episode
+    falls below the multi-voice threshold or routes to a non-WaveNet engine.
+
+    Returns:
+        The text with every marker occurrence removed.
+
+    """
+    return text.replace(marker, "")
+
+
 def assign_voice(speaker: str, narrator_voice: str, quote_pool: list[str]) -> str:
     """Return the Google TTS voice for a speaker, stable across runs.
 
@@ -160,7 +230,7 @@ def _synth(client: texttospeech.TextToSpeechClient, text: str, voice: str) -> Au
     return combined
 
 
-def render_comment_episode(
+def render_utterances(
     utterances: list[tuple[str, str]],
     narrator_voice: str,
     quote_pool: list[str],

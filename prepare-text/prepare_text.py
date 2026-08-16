@@ -60,6 +60,7 @@ CLEANING_STEPS = (
     "unsubscribe_removal",
     "view_online_removal",
     "substack_refs_removal",
+    "substack_boilerplate_removal",
     "standalone_at_removal",
     "end_of_line_punctuation",
 )
@@ -134,6 +135,7 @@ class GeneralCleaningConfig(TypedDict, total=False):
     unsubscribe_removal: bool
     view_online_removal: bool
     substack_refs_removal: bool
+    substack_boilerplate_removal: bool
     standalone_at_removal: bool
     end_of_line_punctuation: bool
     overrides: list[CleaningOverride]
@@ -547,9 +549,26 @@ _ROMAN_CORE = r"(?=[MDCLXVI])M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|
 _ROMAN_HEADER_RE = re.compile(rf"(?m)^[ \t]*({_ROMAN_CORE})\.[ \t]*$")
 
 _CARDINAL_ONES = (
-    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
-    "seventeen", "eighteen", "nineteen",
+    "zero",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
 )
 _CARDINAL_TENS = ("", "", "twenty", "thirty", "forty")
 
@@ -748,6 +767,18 @@ def apply_general_cleaning(
             "",
             result,
             "substack_refs_removal",
+        )
+
+    # Substack UI/footer boilerplate that its HTML emails carry but the plain-text part
+    # did not: standalone action-button chrome (Share/Comment/Like/Restack/etc.), the
+    # free-subscriber upgrade CTA, and the copyright/address/unsubscribe trailer — anchored
+    # on Substack's "548 Market Street PMB 72296" address. Gated on the Substack platform.
+    if is_enabled("substack_boilerplate_removal") and metadata.get("source_kind") == "substack":
+        result = count_and_sub(
+            r"(?im)^(?:Share|Comment|Like|Restack|Leave a comment|Subscribe now|Read in app|Give a gift subscription|Pledge your support|Upgrade to paid|[^\n]*currently a free subscriber to [^\n]*?upgrade your subscription[^\n]*|.*©\s*\d{4}[^\n]*548 Market Street PMB 72296, San Francisco, CA 94104\s*Unsubscribe[^\n]*)\.?\s*$",
+            "",
+            result,
+            "substack_boilerplate_removal",
         )
 
     # Standalone @ removal

@@ -50,9 +50,10 @@ filters:
 # Available keys (all default true):
 #   url_removal, triple_dash_removal, legal_bracket_unwrap,
 #   empty_bracket_removal, whitespace_collapse, unsubscribe_removal,
-#   view_online_removal, substack_refs_removal, standalone_at_removal,
-#   beehiiv_plaintext_conversion, beehiiv_emphasis_removal,
-#   end_of_line_punctuation
+#   view_online_removal, substack_refs_removal, substack_boilerplate_removal,
+#   standalone_at_removal, beehiiv_plaintext_conversion,
+#   beehiiv_emphasis_removal, end_of_line_punctuation
+# (substack_boilerplate_removal / beehiiv_* apply only to that platform's source_kind)
 #
 # general_cleaning:
 #   url_removal: false              # globally disable URL removal

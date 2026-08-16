@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 SUMMARY_MODEL = "gemini-3.1-flash-lite"
 
+# Line prefix that intake writes ahead of each block-quotation line so downstream
+# stages can tell quoted passages from the author's own words. Chosen to survive
+# prepare-text cleaning (no brackets, underscores, or whitespace it would collapse)
+# and to never occur in prose; stripped before any text reaches the synthesizer.
+BLOCKQUOTE_MARKER = chr(0x276F) + " "  # U+276F HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT, then a space
+
 _gemini_client: genai.Client | None = None
 
 
