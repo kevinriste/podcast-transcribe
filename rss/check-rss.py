@@ -13,6 +13,8 @@ import msgspec
 import yaml
 from bs4 import BeautifulSoup
 from dateutil import parser
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from podcast_shared import send_gotify_notification
 from trafilatura import bare_extraction, extract
@@ -23,6 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 output_folder = "../prepare-text/text-input-raw"
 feeds_file = "feeds.yaml"
+poll_state_dir = "./feed-poll-state"
 DEFAULT_SCRAPER_URL = "http://localhost:3002/fetch"
 
 
@@ -37,12 +40,15 @@ class FeedConfig:
         verified by ``check_phrases``.
     ``seed_backfill`` seeds the most-recent GUID N entries back on the first run
     (0 disables), useful to avoid re-reading a long backlog on a new feed.
+    ``poll_interval_hours`` throttles how often the feed is fetched (0 = every
+    run); useful for feeds behind bot protection that flakes under frequent polls.
     """
 
     url: str
     mode: str = "content"
     check_phrases: tuple[str, ...] = ()
     seed_backfill: int = 0
+    poll_interval_hours: float = 0.0
 
 
 class FeedEntry(TypedDict, total=False):
@@ -52,6 +58,7 @@ class FeedEntry(TypedDict, total=False):
     mode: str
     check_phrases: list[str]
     seed_backfill: int
+    poll_interval_hours: float
 
 
 class FeedsConfig(TypedDict, total=False):
@@ -77,6 +84,7 @@ def load_feeds() -> tuple[str, list[FeedConfig]]:
             mode=entry.get("mode", "content"),
             check_phrases=tuple(entry.get("check_phrases", [])),
             seed_backfill=entry.get("seed_backfill", 0),
+            poll_interval_hours=entry.get("poll_interval_hours", 0.0),
         )
         for entry in config.get("feeds", [])
     ]
@@ -101,7 +109,63 @@ def get_entry_link(entry: object) -> str:
     return ""
 
 
-def fetch_full_article(original_url: str, scraper_url: str, check_phrases: tuple[str, ...]) -> str | None:
+def poll_is_due(clean_feed_name: str, interval_hours: float, now: datetime) -> bool:
+    """Whether a throttled feed is due for another poll.
+
+    Reads the last-poll timestamp recorded for ``clean_feed_name``. Feeds with
+    ``interval_hours <= 0`` are always due; a missing or unreadable timestamp
+    also counts as due (fail open, so a fresh feed is never starved).
+
+    Returns:
+        True if at least ``interval_hours`` have elapsed since the last poll.
+
+    """
+    if interval_hours <= 0:
+        return True
+    stamp_path = pathlib.Path(poll_state_dir) / f"{clean_feed_name}.txt"
+    try:
+        last = datetime.fromisoformat(stamp_path.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    return (now - last) >= timedelta(hours=interval_hours)
+
+
+def record_poll(clean_feed_name: str, now: datetime) -> None:
+    """Record ``now`` as the last-poll time for ``clean_feed_name``."""
+    stamp_dir = pathlib.Path(poll_state_dir)
+    stamp_dir.mkdir(parents=True, exist_ok=True)
+    _ = (stamp_dir / f"{clean_feed_name}.txt").write_text(now.isoformat(), encoding="utf-8")
+
+
+@dataclass(slots=True)
+class ScrapeResult:
+    """Outcome of a full-article scrape attempt.
+
+    Exactly one field is set: ``content`` holds the article text on success,
+    ``error`` holds a human-readable reason on failure. The reason is written to
+    the logs and forwarded to Gotify so failures are diagnosable without shelling
+    into the container.
+    """
+
+    content: str | None = None
+    error: str | None = None
+
+
+def _body_snippet(html_content: str, limit: int = 300) -> str:
+    """Collapse scraper HTML to a short single-line snippet for error messages.
+
+    Returns:
+        Whitespace-collapsed text truncated to ``limit`` characters. Surfaces the
+        scraper container's own error payload (e.g. a JSON error the browser
+        rendered) when a fetch fails.
+
+    """
+    return " ".join(html_content.split())[:limit]
+
+
+def fetch_full_article(original_url: str, scraper_url: str, check_phrases: tuple[str, ...]) -> ScrapeResult:
     """Fetch a full article via the local scraper and verify completeness.
 
     Uses Playwright to navigate to the local scraper service, then extracts
@@ -109,12 +173,15 @@ def fetch_full_article(original_url: str, scraper_url: str, check_phrases: tuple
     the full article was captured by requiring at least one phrase to be present.
 
     Returns:
-        The article text with title, or None if the fetch failed or the
-        article was incomplete.
+        A :class:`ScrapeResult` carrying the article text on success, or a
+        specific ``error`` reason for each distinct failure mode (unreachable
+        scraper, timeout, non-2xx status, empty extraction, failed verification).
 
     """
     logging.info("Fetching full article via scraper: %s", original_url)
 
+    status: int | None = None
+    html_content: str | None = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -122,27 +189,37 @@ def fetch_full_article(original_url: str, scraper_url: str, check_phrases: tuple
             page = context.new_page()
 
             try:
-                _ = page.goto(
+                response = page.goto(
                     f"{scraper_url}?url={original_url}",
                     wait_until="networkidle",
                     timeout=180000,
                 )
-                html_content: str | None = page.content()
-            except Exception:
-                logging.exception("Error fetching %s via local scraper", original_url)
-                html_content = None
+                status = response.status if response is not None else None
+                html_content = page.content()
+            except PlaywrightTimeoutError as exc:
+                logging.exception("Timeout fetching %s via scraper", original_url)
+                return ScrapeResult(error=f"scraper timed out after 180s: {exc}")
+            except PlaywrightError as exc:
+                logging.exception("Error fetching %s via scraper", original_url)
+                return ScrapeResult(error=f"scraper navigation failed: {exc}")
             finally:
                 browser.close()
-    except Exception:
-        logging.exception("Playwright error for %s", original_url)
-        return None
+    except PlaywrightError as exc:
+        logging.exception("Playwright failed to start for %s", original_url)
+        return ScrapeResult(error=f"Playwright failed to start: {exc}")
 
-    if html_content is None:
-        logging.error("Playwright returned no content for %s", original_url)
-        return None
+    logging.info("Scraper returned HTTP %s for %s", status, original_url)
+
+    if status is not None and status >= 400:
+        return ScrapeResult(error=f"scraper returned HTTP {status}; body: {_body_snippet(html_content)}")
 
     trafilatura_result: object | None = bare_extraction(html_content, with_metadata=True)
     webpage_text: str = str(extract(html_content, include_comments=False, favor_recall=True) or "")
+
+    if not webpage_text.strip():
+        return ScrapeResult(
+            error=f"scraper page had no extractable article text (HTTP {status}); body: {_body_snippet(html_content)}",
+        )
 
     title = ""
     if trafilatura_result is not None:
@@ -154,13 +231,14 @@ def fetch_full_article(original_url: str, scraper_url: str, check_phrases: tuple
     content_text = title + ".\n" + "\n" + webpage_text
 
     if check_phrases and all(phrase not in content_text for phrase in check_phrases):
-        logging.warning(
-            "Local scraper did not return full article for %s",
-            original_url,
+        return ScrapeResult(
+            error=(
+                f"article failed verification (HTTP {status}): none of {list(check_phrases)} found "
+                f"in {len(content_text)} chars — likely paywalled or incomplete"
+            ),
         )
-        return None
 
-    return content_text
+    return ScrapeResult(content=content_text)
 
 
 def main() -> None:
@@ -168,22 +246,39 @@ def main() -> None:
     scraper_url, feeds = load_feeds()
     for feed in feeds:
         try:
+            now = datetime.now(tz=UTC)
+            clean_feed_name = re.sub(r"[^A-Za-z0-9 ]+", "", feed.url)
+
+            # Throttle feeds behind flaky bot protection (e.g. NYT/DataDome):
+            # skip until the configured interval has elapsed since the last poll.
+            if not poll_is_due(clean_feed_name, feed.poll_interval_hours, now):
+                logging.info(
+                    "Skipping %s; polled within the last %sh",
+                    feed.url,
+                    feed.poll_interval_hours,
+                )
+                continue
+            record_poll(clean_feed_name, now)
+
             parsed_feed: object = feedparser.parse(feed.url)  # pyright: ignore[reportUnknownMemberType]
             feed_meta: object = getattr(parsed_feed, "feed", None)
             feed_entries: list[object] = list(getattr(parsed_feed, "entries", []))
             if bool(getattr(parsed_feed, "bozo", False)):
                 bozo_exc: object = getattr(parsed_feed, "bozo_exception", None)
                 logging.warning("Feed %s has parsing issues: %s", feed.url, bozo_exc)
+                # A malformed response with no usable entries is almost always a
+                # transient bot challenge (HTML served instead of RSS). Notify
+                # and move on; the next poll recovers without losing entries.
+                if not feed_entries:
+                    logging.error("Feed %s returned no parseable entries; will retry next poll", feed.url)
+                    bozo_message = f"{feed.url}\n\nReturned invalid content (likely a bot challenge): {bozo_exc}\nWill retry next poll."
+                    send_gotify_notification("RSS feed unavailable", bozo_message)
+                    continue
 
             # Prepare shared variables for file logging
-            now = datetime.now(tz=UTC)
             date_string = now.strftime("%Y%m%d-%H%M%S")
-            clean_feed_name = re.sub(r"[^A-Za-z0-9 ]+", "", feed.url)
             diagnosis_dir = "./diagnosis"
-
-            # Save the serializable feed data to a JSON file
             json_filename = f"{diagnosis_dir}/{clean_feed_name}-{date_string}-json.json"
-            json_version_of_parsed_feed = msgspec.json.encode(parsed_feed)
 
             # Some feeds occasionally serve a stale/cached copy; skip when the
             # feed's own "updated" timestamp is too old to prevent reprocessing.
@@ -203,7 +298,7 @@ def main() -> None:
                             date_string,
                         )
 
-                        _ = pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
+                        _ = pathlib.Path(json_filename).write_bytes(msgspec.json.encode(parsed_feed))
                     else:
                         logging.info(
                             "%s-%s was more than 7 days old",
@@ -215,7 +310,7 @@ def main() -> None:
                     continue
 
             if enable_diagnosis:
-                _ = pathlib.Path(json_filename).write_bytes(json_version_of_parsed_feed)
+                _ = pathlib.Path(json_filename).write_bytes(msgspec.json.encode(parsed_feed))
 
             feed_title_raw: str = str(getattr(feed_meta, "title", ""))
             feed_title_for_filename = re.sub(r"[^A-Za-z0-9 ]+", "", feed_title_raw)
@@ -273,14 +368,16 @@ def main() -> None:
                     description: str = str(getattr(parsed_feed_entry, "description", "") or "")
                     content_text = summary or description
                 elif feed.mode == "full_scraper":
-                    article_content = fetch_full_article(original_url, scraper_url, feed.check_phrases)
-                    if article_content is None:
+                    scrape = fetch_full_article(original_url, scraper_url, feed.check_phrases)
+                    if scrape.content is None:
+                        reason = scrape.error or "unknown error"
+                        logging.error("Full-article fetch failed for %s: %s", original_url, reason)
                         send_gotify_notification(
-                            "Incomplete article",
-                            f"Could not fetch full article: {original_url}",
+                            "RSS full-article fetch failed",
+                            f"{feed_title_raw}: {entry_title_raw}\n{original_url}\n\n{reason}",
                         )
                         break
-                    content_text = article_content
+                    content_text = scrape.content
                 else:
                     content_list: list[object] = getattr(parsed_feed_entry, "content", [])
                     if content_list:

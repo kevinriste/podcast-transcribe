@@ -22,8 +22,12 @@ feeds:
   # Paywalled/JS-rendered source: fetch the full article via the authenticated
   # scraper and verify completeness by requiring at least one check phrase
   # (e.g. an author-bio line that only appears in the full article).
+  # poll_interval_hours throttles how often this feed is fetched (default 0 =
+  # every run). Raise it for feeds behind bot protection that flakes under
+  # frequent polling, so a transient challenge costs less and recurs less often.
   - url: https://news.example.com/columnist/rss.xml
     mode: full_scraper
+    poll_interval_hours: 8
     check_phrases:
       - "is a columnist for"
       - "has been writing since"
