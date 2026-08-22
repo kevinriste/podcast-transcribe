@@ -56,8 +56,11 @@ uv sync
 echo "Main--Run Google Text to Speech script"
 uv run python3 text_to_speech.py
 cd "$REPO_DIR/dropcaster-docker"
-echo "Main--Archive audio files older than 8 weeks (weekly cutoff)"
-weekly_cutoff=$(date -d "last monday -56 days" +%Y-%m-%d)
+# Retention window for the topical feed, in weeks (default 8). Older audio is
+# moved to ./audio-archive. Override via PODCAST_RETENTION_WEEKS in .env.
+retention_weeks="${PODCAST_RETENTION_WEEKS:-8}"
+echo "Main--Archive audio files older than ${retention_weeks} weeks (weekly cutoff)"
+weekly_cutoff=$(date -d "last monday -$((retention_weeks * 7)) days" +%Y-%m-%d)
 archive_dir="./audio-archive"
 mkdir -p "$archive_dir"
 # -maxdepth 1 keeps the archiver on the topical feed only: the evergreen feed
