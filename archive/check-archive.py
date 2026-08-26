@@ -7,7 +7,7 @@ import re
 from datetime import UTC, datetime
 
 import requests
-from podcast_shared import generate_summary, send_gotify_notification
+from podcast_shared import generate_summary, send_gotify_notification, store_intake_html
 from trafilatura import extract
 
 from comment_briefing import (
@@ -125,6 +125,13 @@ def process_post(
     logging.info("Writing raw metadata and text to %s", output_filename)
     pathlib.Path(OUTPUT_FOLDER).mkdir(parents=True, exist_ok=True)
     _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
+    _ = store_intake_html(
+        source=source_name,
+        episode_id=date_stamp,
+        html=html_content,
+        url=url,
+        intake_type="archive",
+    )
 
     state["last_processed_index"] = next_index
     state["last_processed_date"] = today_str
