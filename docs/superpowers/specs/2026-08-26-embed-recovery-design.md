@@ -232,6 +232,14 @@ Root cause of why only 2/261 items leak the trailing NUL still open.
 7. Backfill script.
 8. NUL-byte fix (independent).
 
+## 14a. Future enhancements (bookmarked, out of scope)
+
+- **YouTube transcript summarization.** Beyond yt-dlp title/channel/description,
+  fetch the video's transcript and summarize it for a richer aside. Deferred: adds
+  network + summarization cost/latency and rate-limit exposure for a relatively rare
+  embed; the metadata aside is enough for the common case. Revisit if video embeds
+  become common in a source.
+
 ## 15. Open questions / risks
 
 - Vision cost/latency on image-heavy issues (maangchi) — mitigate via batching; GPT-5.6
