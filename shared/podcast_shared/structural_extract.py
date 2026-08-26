@@ -145,6 +145,31 @@ def _block_to_dict(block: Block) -> dict[str, object]:
     }
 
 
+def block_from_dict(data: dict[str, object]) -> Block:
+    """Rebuild a Block from a sidecar entry (inverse of ``_block_to_dict``).
+
+    ``data`` is a deserialization boundary (a JSON-like mapping); narrowed
+    defensively so a malformed entry degrades to an empty payload/children rather
+    than raising. The two ``pyright: ignore`` comments cover the unavoidable
+    ``Unknown`` that ``isinstance(x, dict/list)`` yields on ``object`` values — the
+    same boundary the repo already suppresses for ``json.loads``.
+
+    Returns:
+        The reconstructed Block.
+
+    """
+    block_type = str(data.get("type", ""))
+    payload: dict[str, str] = {}
+    payload_raw = data.get("payload")
+    if isinstance(payload_raw, dict):
+        payload = {str(k): str(v) for k, v in payload_raw.items()}  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+    children: list[Block] = []
+    children_raw = data.get("children")
+    if isinstance(children_raw, list):
+        children = [block_from_dict(c) for c in children_raw if isinstance(c, dict)]  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
+    return Block(type=block_type, payload=payload, children=children)
+
+
 def serialize_blocks(blocks: list[Block]) -> tuple[str, dict[str, dict[str, object]]]:
     """Serialise blocks to marker-annotated text plus a sidecar payload map.
 

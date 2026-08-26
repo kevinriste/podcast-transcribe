@@ -9,6 +9,7 @@ from bs4.element import Tag
 
 from podcast_shared.structural_extract import (
     Block,
+    block_from_dict,
     extract_blocks,
     extract_tweet,
     find_content_region,
@@ -148,6 +149,25 @@ def test_serialize_recurses_children() -> None:
             _fail(f"nested child missing {fragment!r}: {dumped}")
 
 
+def test_block_from_dict_roundtrips() -> None:
+    """Serialize -> block_from_dict rebuilds the tree (incl. nested children)."""
+    original = [
+        Block(
+            type="tweet",
+            payload={"handle": "@x", "text": "hi"},
+            children=[Block(type="image", payload={"alt": "a chart"})],
+        )
+    ]
+    _, sidecar = serialize_blocks(original)
+    rebuilt = block_from_dict(sidecar["0000"])
+    if rebuilt.type != "tweet" or rebuilt.payload["handle"] != "@x":
+        _fail(f"top block wrong: {rebuilt!r}")
+    if len(rebuilt.children) != 1 or rebuilt.children[0].type != "image":
+        _fail(f"children wrong: {rebuilt.children!r}")
+    if rebuilt.children[0].payload.get("alt") != "a chart":
+        _fail(f"child payload wrong: {rebuilt.children[0].payload!r}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -158,6 +178,7 @@ def run_tests() -> None:
     test_extract_blocks_preserves_tweet_position()
     test_serialize_emits_markers_and_sidecar()
     test_serialize_recurses_children()
+    test_block_from_dict_roundtrips()
     logging.info("all structural-extractor tests passed")
 
 

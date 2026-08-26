@@ -11,11 +11,14 @@ from mutagen.id3 import ID3
 from mutagen.id3._frames import TIT2, TT3, WXXX  # noqa: PLC2701
 from mutagen.id3._util import ID3NoHeaderError  # noqa: PLC2701
 
+from podcast_shared.aside_render import render_block_aside as render_block_aside
+from podcast_shared.aside_render import resolve_markers as resolve_markers
 from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
 from podcast_shared.structural_extract import EMBED_MARKER_PREFIX as EMBED_MARKER_PREFIX
 from podcast_shared.structural_extract import EMBED_MARKER_SUFFIX as EMBED_MARKER_SUFFIX
 from podcast_shared.structural_extract import Block as Block
+from podcast_shared.structural_extract import block_from_dict as block_from_dict
 from podcast_shared.structural_extract import extract_blocks as extract_blocks
 from podcast_shared.structural_extract import find_content_region as find_content_region
 from podcast_shared.structural_extract import serialize_blocks as serialize_blocks
