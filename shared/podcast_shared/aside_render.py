@@ -39,6 +39,16 @@ def _render_own(block: Block) -> str:
         return f"The author shares {noun} titled '{title}'." if title else f"The author shares {noun}."
     if block.type == "code":
         return "The author includes a code block."
+    if block.type == "footnote":
+        number = block.payload.get("number", "")
+        text = block.payload.get("text", "")
+        return f"Footnote {number}: {text}" if number else f"Footnote: {text}"
+    if block.type == "card":
+        title = block.payload.get("title", "")
+        publication = block.payload.get("publication", "")
+        if publication:
+            return f"The author links to a post titled '{title}' from {publication}."
+        return f"The author links to a post titled '{title}'."
     return "The author includes embedded content."
 
 
@@ -75,12 +85,16 @@ def resolve_markers(text: str, sidecar: dict[str, dict[str, object]]) -> str:
     return _MARKER_RE.sub(replace, text)
 
 
-def serialize_flat(blocks: list[Block]) -> str:
+_NO_DROP: frozenset[str] = frozenset()
+
+
+def serialize_flat(blocks: list[Block], *, drop_types: frozenset[str] = _NO_DROP) -> str:
     """Serialise blocks to flat marker body text for the TTS pipeline.
 
     ``text`` stays plain; ``quote`` gets ``BLOCKQUOTE_MARKER`` (reusing the existing
     quote-voice machinery); every other embed becomes ``ASIDE_MARKER`` + its rendered
-    aside (skipped when the aside is empty).
+    aside (skipped when the aside is empty). Blocks whose type is in ``drop_types`` are
+    skipped entirely, letting intake switch off individual embed types.
 
     Returns:
         The flat marker body, blocks joined by blank lines.
@@ -88,6 +102,8 @@ def serialize_flat(blocks: list[Block]) -> str:
     """
     lines: list[str] = []
     for block in blocks:
+        if block.type in drop_types:
+            continue
         if block.type == "text":
             lines.append(block.payload.get("text", ""))
         elif block.type == "quote":

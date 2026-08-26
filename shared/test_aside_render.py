@@ -126,6 +126,36 @@ def test_render_video_audio_code() -> None:
         _fail(f"code aside was {c!r}")
 
 
+def test_render_footnote_and_card() -> None:
+    """Footnotes read as numbered notes; cards as a one-line link announcement."""
+    fn = render_block_aside(Block(type="footnote", payload={"number": "1", "text": "Counting headwords."}))
+    if fn != "Footnote 1: Counting headwords.":
+        _fail(f"footnote aside was {fn!r}")
+    fn0 = render_block_aside(Block(type="footnote", payload={"number": "", "text": "A note"}))
+    if fn0 != "Footnote: A note":
+        _fail(f"numberless footnote was {fn0!r}")
+    card = render_block_aside(Block(type="card", payload={"title": "On Beliefs", "publication": "NNN", "href": "u"}))
+    if card != "The author links to a post titled 'On Beliefs' from NNN.":
+        _fail(f"card aside was {card!r}")
+    card0 = render_block_aside(Block(type="card", payload={"title": "On Beliefs", "publication": "", "href": "u"}))
+    if card0 != "The author links to a post titled 'On Beliefs'.":
+        _fail(f"publicationless card was {card0!r}")
+
+
+def test_serialize_flat_drop_types() -> None:
+    """drop_types suppresses chosen block types entirely."""
+    blocks = [
+        Block(type="text", payload={"text": "Body."}),
+        Block(type="card", payload={"title": "T", "publication": "P", "href": "u"}),
+        Block(type="footnote", payload={"number": "1", "text": "Note."}),
+    ]
+    out = serialize_flat(blocks, drop_types=frozenset({"card"}))
+    if "titled 'T'" in out:
+        _fail(f"card should be dropped: {out!r}")
+    if "Footnote 1" not in out or "Body." not in out:
+        _fail(f"non-dropped content missing: {out!r}")
+
+
 def run_tests() -> None:
     """Run all aside-render tests."""
     test_render_tweet()
@@ -137,6 +167,8 @@ def run_tests() -> None:
     test_render_quote_is_verbatim()
     test_render_image_from_caption()
     test_render_video_audio_code()
+    test_render_footnote_and_card()
+    test_serialize_flat_drop_types()
     test_serialize_flat_marks_quotes_and_asides()
     logging.info("aside render tests passed")
 

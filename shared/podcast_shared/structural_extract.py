@@ -168,6 +168,47 @@ def extract_iframe(el: Tag) -> Block | None:
     return Block(type=kind, payload={"title": title, "src": src})
 
 
+def extract_footnote(el: Tag) -> Block | None:
+    """Extract a Substack footnote definition div into a footnote Block.
+
+    Substack email HTML carries no in-text footnote reference markers, so footnotes
+    are emitted in document order (naturally last) as numbered notes.
+
+    Returns:
+        A ``footnote`` Block, or None when it has no text.
+
+    """
+    number_el = el.find(class_="footnote-number")
+    number = number_el.get_text(" ").strip() if isinstance(number_el, Tag) else ""
+    content_el = el.find(class_="footnote-content")
+    if isinstance(content_el, Tag):
+        text = " ".join(content_el.get_text(" ").split())
+    else:
+        text = " ".join(el.get_text(" ").split())
+        if number and text.startswith(number):
+            text = text[len(number) :].strip()
+    if not text:
+        return None
+    return Block(type="footnote", payload={"number": number, "text": text})
+
+
+def extract_card(el: Tag) -> Block | None:
+    """Extract a Substack embedded-post card into a card Block.
+
+    Returns:
+        A ``card`` Block, or None when it has no title.
+
+    """
+    title_el = el.find("a", class_="embedded-post-title")
+    title = title_el.get_text(" ").strip() if isinstance(title_el, Tag) else ""
+    if not title:
+        return None
+    href = str(title_el.get("href") or "") if isinstance(title_el, Tag) else ""
+    pub_el = el.find(class_="embedded-post-publication-name")
+    publication = pub_el.get_text(" ").strip() if isinstance(pub_el, Tag) else ""
+    return Block(type="card", payload={"title": title, "publication": publication, "href": href})
+
+
 _TEXT_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 
 
@@ -184,7 +225,7 @@ def extract_blocks(region: Tag) -> list[Block]:
     blocks: list[Block] = []
     previous_text: str | None = None
     consumed: set[int] = set()  # id() of elements already emitted as a tweet
-    for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img", "iframe", "pre")):
+    for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img", "iframe", "pre", "div")):
         if any(id(ancestor) in consumed for ancestor in el.parents):
             continue
         if is_tweet(el):
@@ -214,6 +255,23 @@ def extract_blocks(region: Tag) -> list[Block]:
             if code_text:
                 blocks.append(Block(type="code", payload={"text": code_text}))
                 previous_text = None
+            continue
+        if el.name == "div":
+            classes = _classes(el)
+            if "embedded-post-wrap" in classes or "embedded-post" in classes:
+                card = extract_card(el)
+                if card is not None:
+                    blocks.append(card)
+                    consumed.add(id(el))
+                    previous_text = None
+                continue
+            if "footnote" in classes:
+                footnote = extract_footnote(el)
+                if footnote is not None:
+                    blocks.append(footnote)
+                    consumed.add(id(el))
+                    previous_text = None
+                continue
             continue
         if el.name not in _TEXT_TAGS:
             continue

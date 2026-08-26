@@ -265,6 +265,38 @@ def test_extract_blocks_video_and_code() -> None:
         _fail(f"code text wrong: {blocks[2].payload}")
 
 
+def test_extract_footnote_and_card() -> None:
+    """A footnote div and an embedded-post card become footnote/card blocks; order preserved."""
+    html = (
+        '<div class="body markup">'
+        "<p>Body text.</p>"
+        '<div class="embedded-post-wrap"><div class="embedded-post">'
+        '<div class="embedded-post-header"><span class="embedded-post-publication-name">The NNN Newsletter</span></div>'
+        '<div class="embedded-post-title-wrapper"><a class="embedded-post-title" href="https://ex.com/p">'
+        "Can You Control Your Beliefs?</a></div>"
+        '<a class="embedded-post-cta">Read more</a>'
+        '<div class="embedded-post-meta">15 days ago · 15 likes · Turi Munthe</div>'
+        "</div></div>"
+        '<div class="footnote"><span class="footnote-number">1</span>'
+        '<div class="footnote-content">Counting headwords.</div></div>'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [b.type for b in blocks]
+    if kinds != ["text", "card", "footnote"]:
+        _fail(f"kinds were {kinds}")
+    card = blocks[1]
+    if card.payload.get("title") != "Can You Control Your Beliefs?":
+        _fail(f"card title wrong: {card.payload}")
+    if card.payload.get("publication") != "The NNN Newsletter":
+        _fail(f"card publication wrong: {card.payload}")
+    if card.payload.get("href") != "https://ex.com/p":
+        _fail(f"card href wrong: {card.payload}")
+    fn = blocks[2]
+    if fn.payload.get("number") != "1" or fn.payload.get("text") != "Counting headwords.":
+        _fail(f"footnote payload wrong: {fn.payload}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -282,6 +314,7 @@ def run_tests() -> None:
     test_iframe_kind_classifies_hosts()
     test_extract_iframe_builds_block()
     test_extract_blocks_video_and_code()
+    test_extract_footnote_and_card()
     logging.info("all structural-extractor tests passed")
 
 

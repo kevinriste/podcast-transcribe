@@ -260,7 +260,8 @@ def extract_body_from_html(msg: MailMessage) -> str | None:
     blocks = extract_blocks(find_content_region(msg.html))
     if os.environ.get("EMBED_VISION", "1") != "0":
         enrich_images(blocks, describe_image)
-    body = serialize_flat(blocks)
+    drop_types = frozenset(t.strip().lower() for t in os.environ.get("EMBED_DROP_TYPES", "").split(",") if t.strip())
+    body = serialize_flat(blocks, drop_types=drop_types)
     return body or None
 
 
