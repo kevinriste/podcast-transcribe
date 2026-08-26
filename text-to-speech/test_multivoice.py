@@ -3,6 +3,7 @@
 import logging
 
 from multivoice import (
+    ASIDE_MARKER,
     BLOCKQUOTE_MARKER,
     DEFAULT_NARRATOR_VOICE,
     DEFAULT_QUOTE_POOL,
@@ -10,6 +11,7 @@ from multivoice import (
     parse_segments,
     plan_article_utterances,
     plan_utterances,
+    strip_markers,
 )
 
 BODY = (
@@ -141,6 +143,48 @@ def check_article_no_markers_all_narrator() -> None:
         raise AssertionError(msg)
 
 
+def check_aside_marker_becomes_aside_speaker() -> None:
+    """Verify an ASIDE_MARKER line becomes an ("aside text", "ASIDE") utterance.
+
+    Raises:
+        AssertionError: If the aside line is not planned as an ASIDE speaker.
+
+    """
+    body = f"Narration line.\n\n{ASIDE_MARKER}The author shares a tweet from @x: hi."
+    plan = plan_article_utterances(body)
+    if ("The author shares a tweet from @x: hi.", "ASIDE") not in plan:
+        msg = f"no ASIDE utterance: {plan!r}"
+        raise AssertionError(msg)
+
+
+def check_assign_voice_routes_aside() -> None:
+    """Verify ASIDE routes to the aside voice, falling back to narrator when unset.
+
+    Raises:
+        AssertionError: If aside voice routing is wrong.
+
+    """
+    if assign_voice("ASIDE", "NARV", ["Q1"], "ASIDEV") != "ASIDEV":
+        msg = "aside voice not used"
+        raise AssertionError(msg)
+    if assign_voice("ASIDE", "NARV", ["Q1"]) != "NARV":
+        msg = "aside should fall back to narrator when unset"
+        raise AssertionError(msg)
+
+
+def check_strip_markers_removes_aside_marker() -> None:
+    """Verify strip_markers removes the aside marker, leaving the spoken text.
+
+    Raises:
+        AssertionError: If the aside marker survives stripping.
+
+    """
+    stripped = strip_markers(f"{ASIDE_MARKER}spoken aside")
+    if ASIDE_MARKER in stripped or stripped != "spoken aside":
+        msg = f"aside marker not stripped: {stripped!r}"
+        raise AssertionError(msg)
+
+
 if __name__ == "__main__":
     check_parse()
     check_plan()
@@ -148,4 +192,7 @@ if __name__ == "__main__":
     check_article_plan()
     check_article_voices_shared()
     check_article_no_markers_all_narrator()
+    check_aside_marker_becomes_aside_speaker()
+    check_assign_voice_routes_aside()
+    check_strip_markers_removes_aside_marker()
     logging.info("multivoice tests passed.")

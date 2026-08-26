@@ -22,10 +22,11 @@ import re
 
 from google.api_core.exceptions import InvalidArgument
 from google.cloud import texttospeech
-from podcast_shared import BLOCKQUOTE_MARKER
+from podcast_shared import ASIDE_MARKER, BLOCKQUOTE_MARKER
 from pydub import AudioSegment
 
 __all__ = [
+    "ASIDE_MARKER",
     "BLOCKQUOTE_MARKER",
     "DEFAULT_NARRATOR_VOICE",
     "DEFAULT_QUOTE_POOL",
@@ -110,20 +111,26 @@ def plan_utterances(
     return out
 
 
-def plan_article_utterances(body: str, marker: str = BLOCKQUOTE_MARKER) -> list[tuple[str, str]]:
+def plan_article_utterances(
+    body: str, marker: str = BLOCKQUOTE_MARKER, aside_marker: str = ASIDE_MARKER
+) -> list[tuple[str, str]]:
     """Turn article body text into ``(text, speaker)`` utterances for multi-voice render.
 
-    Lines the intake prefixed with ``marker`` are quoted passages; everything else is
-    the author's own words, spoken by the narrator. Consecutive quote lines merge into
-    one utterance so a multi-paragraph quote is read in a single voice. Each quote's
-    speaker key is its own text, so distinct quotes get deterministically varied voices
-    via ``assign_voice`` — the same mechanism the comment path uses for commenter names.
+    Lines the intake prefixed with ``marker`` are quoted passages; lines prefixed with
+    ``aside_marker`` are rendered embed asides (voiced by the meta-narrator aside voice);
+    everything else is the author's own words, spoken by the narrator. Consecutive quote
+    lines merge into one utterance so a multi-paragraph quote is read in a single voice.
+    Each quote's speaker key is its own text, so distinct quotes get deterministically
+    varied voices via ``assign_voice`` — the same mechanism the comment path uses for
+    commenter names; asides use the fixed ``"ASIDE"`` speaker.
 
     Returns:
-        Ordered ``(text, speaker)`` pairs; speaker is ``"NARRATOR"`` or the quote text.
+        Ordered ``(text, speaker)`` pairs; speaker is ``"NARRATOR"``, ``"ASIDE"``, or the
+        quote text.
 
     """
     marker_key = marker.strip()
+    aside_key = aside_marker.strip()
     out: list[tuple[str, str]] = []
     quote_run: list[str] = []
 
@@ -139,6 +146,9 @@ def plan_article_utterances(body: str, marker: str = BLOCKQUOTE_MARKER) -> list[
             continue
         if line.startswith(marker_key):
             quote_run.append(line[len(marker_key) :].strip())
+        elif line.startswith(aside_key):
+            flush_quote()
+            out.append((line[len(aside_key) :].strip(), "ASIDE"))
         else:
             flush_quote()
             out.append((line, "NARRATOR"))
@@ -150,25 +160,29 @@ def strip_markers(text: str, marker: str = BLOCKQUOTE_MARKER) -> str:
     """Remove block-quote markers, leaving the quoted text and layout intact.
 
     Used by the single-voice paths so the marker is never spoken when an episode
-    falls below the multi-voice threshold or routes to a non-WaveNet engine.
+    falls below the multi-voice threshold or routes to a non-WaveNet engine. Removes
+    both the block-quote marker and the embed-aside marker, leaving their text.
 
     Returns:
         The text with every marker occurrence removed.
 
     """
-    return text.replace(marker, "")
+    return text.replace(marker, "").replace(ASIDE_MARKER, "")
 
 
-def assign_voice(speaker: str, narrator_voice: str, quote_pool: list[str]) -> str:
+def assign_voice(speaker: str, narrator_voice: str, quote_pool: list[str], aside_voice: str = "") -> str:
     """Return the Google TTS voice for a speaker, stable across runs.
 
     Returns:
-        The narrator voice for "NARRATOR"; otherwise a pool voice chosen by a
-        stable hash of the commenter name.
+        The narrator voice for "NARRATOR"; the aside voice for "ASIDE" (falling back
+        to the narrator voice when unset); otherwise a pool voice chosen by a stable
+        hash of the commenter name.
 
     """
     if speaker == "NARRATOR":
         return narrator_voice
+    if speaker == "ASIDE":
+        return aside_voice or narrator_voice
     digest = hashlib.sha256(speaker.encode("utf-8")).digest()
     return quote_pool[digest[0] % len(quote_pool)]
 
@@ -234,6 +248,7 @@ def render_utterances(
     utterances: list[tuple[str, str]],
     narrator_voice: str,
     quote_pool: list[str],
+    aside_voice: str = "",
 ) -> list[AudioSegment]:
     """Synthesize planned utterances, each in its assigned voice.
 
@@ -246,7 +261,7 @@ def render_utterances(
     pause = AudioSegment.silent(duration=_PAUSE_MS)
     out: list[AudioSegment] = []
     for text, speaker in utterances:
-        audio = _synth(client, text, assign_voice(speaker, narrator_voice, quote_pool))
+        audio = _synth(client, text, assign_voice(speaker, narrator_voice, quote_pool, aside_voice))
         if audio is None:
             logging.warning("No audio for utterance by %s; skipping", speaker)
             continue
