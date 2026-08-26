@@ -344,7 +344,9 @@ def find_source_url(
     return ""
 
 
-def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None) -> tuple[object | None, str | None]:
+def fetch_and_process_html(
+    url: str, request_body: dict[str, str] | None = None
+) -> tuple[object | None, str | None, str | None]:
     """Fetch a URL via headless Chromium and extract text with trafilatura.
 
     Parameters
@@ -357,9 +359,9 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
 
     Returns
     -------
-    tuple[object | None, str | None]
-        ``(trafilatura_metadata, extracted_text)`` on success, or
-        ``(None, None)`` when the page could not be fetched or parsed.
+    tuple[object | None, str | None, str | None]
+        ``(trafilatura_metadata, extracted_text, raw_page_html)`` on success, or
+        ``(None, None, None)`` when the page could not be fetched or parsed.
 
     """
     try:
@@ -397,7 +399,7 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
 
         if html_content is None:
             logging.error("Playwright returned no content for %s", url)
-            return None, None
+            return None, None, None
 
         trafilatura_result: object | None = bare_extraction(
             html_content,
@@ -405,16 +407,16 @@ def fetch_and_process_html(url: str, request_body: dict[str, str] | None = None)
         )
         if trafilatura_result is None:
             logging.error("trafilatura returned no metadata for %s", url)
-            return None, None
+            return None, None, None
         webpage_text: str = str(extract(html_content, include_comments=False, favor_recall=True) or "")
         title: str = extract_title(trafilatura_result)
         content_text: str = title + ".\n" + "\n" + webpage_text
 
-        return trafilatura_result, content_text
+        return trafilatura_result, content_text, html_content
 
     except Exception:
         logging.exception("Error occurred")
-        return None, None
+        return None, None, None
 
 
 def main() -> None:
@@ -543,7 +545,7 @@ def main() -> None:
                     scrapers = imap_config.scrapers
                     use_authenticated = any(domain in original_url for domain in scrapers.authenticated_domains)
                     scraper_url = scrapers.authenticated_url if use_authenticated else scrapers.general_url
-                    html_content_parsed_for_title, webpage_text = fetch_and_process_html(
+                    html_content_parsed_for_title, webpage_text, raw_page_html = fetch_and_process_html(
                         url=scraper_url,
                         request_body={"url": original_url},
                     )
@@ -568,6 +570,13 @@ def main() -> None:
                     logging.info("Writing metadata block to text input")
                     _ = pathlib.Path(output_filename).write_text(
                         metadata_block + "\n\n" + webpage_text, encoding="utf-8"
+                    )
+                    _ = store_intake_html(
+                        source=from_name_raw,
+                        episode_id=date_stamp,
+                        html=raw_page_html or "",
+                        url=original_url,
+                        intake_type="link",
                     )
                 flags = MailMessageFlags.SEEN
                 uid: str = msg.uid or ""
