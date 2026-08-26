@@ -97,6 +97,43 @@ def extract_tweet(el: Tag) -> Block:
     return Block(type="tweet", payload={"handle": handle, "text": body})
 
 
+_DECORATIVE_CLASS_RE = re.compile(r"\b(?:avatar|icon|logo|badge|emoji)\b")
+
+
+def _is_decorative(el: Tag) -> bool:
+    """Whether an ``<img>`` is chrome (skip it).
+
+    Returns:
+        True for empty-alt icon/avatar/logo/badge/emoji or ``data:`` images.
+
+    """
+    alt = str(el.get("alt") or "").strip()
+    if alt:
+        return False
+    src = str(el.get("src") or "")
+    return bool(_DECORATIVE_CLASS_RE.search(_classes(el))) or src.startswith("data:")
+
+
+def extract_image(el: Tag) -> Block:
+    """Extract an image/figure into an ``image`` Block.
+
+    Returns:
+        An ``image`` Block with ``alt``/``caption``/``src`` payload fields.
+
+    """
+    img = el if el.name == "img" else el.find("img")
+    alt = ""
+    src = ""
+    if isinstance(img, Tag):
+        alt = str(img.get("alt") or "").strip()
+        src = str(img.get("src") or "").strip()
+    caption = ""
+    figcaption = el.find("figcaption")
+    if isinstance(figcaption, Tag):
+        caption = " ".join(figcaption.get_text(" ").split())
+    return Block(type="image", payload={"alt": alt, "caption": caption, "src": src})
+
+
 _TEXT_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 
 
@@ -113,12 +150,23 @@ def extract_blocks(region: Tag) -> list[Block]:
     blocks: list[Block] = []
     previous_text: str | None = None
     consumed: set[int] = set()  # id() of elements already emitted as a tweet
-    for el in region.find_all((*_TEXT_TAGS, "table")):
+    for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img")):
         if any(id(ancestor) in consumed for ancestor in el.parents):
             continue
         if is_tweet(el):
             blocks.append(extract_tweet(el))
             consumed.add(id(el))
+            previous_text = None
+            continue
+        if el.name == "figure":
+            blocks.append(extract_image(el))
+            consumed.add(id(el))  # skip the figure's inner <img> via the ancestor check
+            previous_text = None
+            continue
+        if el.name == "img":
+            if _is_decorative(el):
+                continue
+            blocks.append(extract_image(el))
             previous_text = None
             continue
         if el.name not in _TEXT_TAGS:
@@ -129,7 +177,8 @@ def extract_blocks(region: Tag) -> list[Block]:
         if not text or text == previous_text:
             continue
         previous_text = text
-        blocks.append(Block(type="text", payload={"text": text}))
+        is_quote = el.name == "blockquote" or el.find_parent("blockquote") is not None
+        blocks.append(Block(type="quote" if is_quote else "text", payload={"text": text}))
     return blocks
 
 

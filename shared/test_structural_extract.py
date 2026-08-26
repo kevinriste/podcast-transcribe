@@ -168,6 +168,52 @@ def test_block_from_dict_roundtrips() -> None:
         _fail(f"child payload wrong: {rebuilt.children[0].payload!r}")
 
 
+def test_extract_blocks_marks_quotes() -> None:
+    """A blockquote paragraph becomes a quote block; normal paragraphs stay text."""
+    html = (
+        '<div class="body markup">'
+        "<p>Normal.</p>"
+        "<blockquote><p>Quoted line.</p></blockquote>"
+        "<p>After.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [(b.type, b.payload.get("text", "")) for b in blocks]
+    if ("quote", "Quoted line.") not in kinds:
+        _fail(f"quote not marked: {kinds}")
+    if ("text", "Normal.") not in kinds:
+        _fail(f"normal text mismarked: {kinds}")
+
+
+def test_extract_image_from_figure() -> None:
+    """A figure yields an image block with alt + caption."""
+    html = (
+        '<div class="body markup">'
+        '<figure><img src="/c.png" alt="a chart"><figcaption>Fig 1: growth</figcaption></figure>'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    imgs = [b for b in blocks if b.type == "image"]
+    if len(imgs) != 1:
+        _fail(f"expected 1 image, got {[b.type for b in blocks]}")
+    if imgs[0].payload.get("alt") != "a chart" or imgs[0].payload.get("caption") != "Fig 1: growth":
+        _fail(f"image payload wrong: {imgs[0].payload}")
+
+
+def test_bare_image_and_decorative_filter() -> None:
+    """A content img is kept; a decorative (empty-alt icon) img is skipped."""
+    html = (
+        '<div class="body markup">'
+        '<p>x</p><img src="/photo.jpg" alt="a landscape">'
+        '<img src="/spacer.gif" alt="" class="icon">'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    imgs = [b for b in blocks if b.type == "image"]
+    if len(imgs) != 1 or imgs[0].payload.get("alt") != "a landscape":
+        _fail(f"decorative filter wrong: {[b.payload for b in imgs]}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -179,6 +225,9 @@ def run_tests() -> None:
     test_serialize_emits_markers_and_sidecar()
     test_serialize_recurses_children()
     test_block_from_dict_roundtrips()
+    test_extract_blocks_marks_quotes()
+    test_extract_image_from_figure()
+    test_bare_image_and_decorative_filter()
     logging.info("all structural-extractor tests passed")
 
 

@@ -78,6 +78,20 @@ def test_resolve_markers_drops_unknown_id() -> None:
         _fail(f"surrounding text lost: {out!r}")
 
 
+def test_render_quote_is_verbatim() -> None:
+    """A quote renders as its own text, not an announced aside."""
+    out = render_block_aside(Block(type="quote", payload={"text": "To be or not to be."}))
+    if out != "To be or not to be.":
+        _fail(f"quote aside was {out!r}")
+
+
+def test_render_image_from_caption() -> None:
+    """An image with a caption renders as 'Image: <caption>'."""
+    out = render_block_aside(Block(type="image", payload={"alt": "", "caption": "Fig 1: growth", "src": "/c.png"}))
+    if out != "Image: Fig 1: growth.":
+        _fail(f"image aside was {out!r}")
+
+
 def run_tests() -> None:
     """Run all aside-render tests."""
     test_render_tweet()
@@ -86,6 +100,8 @@ def run_tests() -> None:
     test_render_generic_fallback()
     test_resolve_markers_replaces_embed()
     test_resolve_markers_drops_unknown_id()
+    test_render_quote_is_verbatim()
+    test_render_image_from_caption()
     logging.info("aside render tests passed")
 
 

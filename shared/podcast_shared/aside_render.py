@@ -20,6 +20,8 @@ _MARKER_RE = re.compile(re.escape(EMBED_MARKER_PREFIX) + r"(\d+)" + re.escape(EM
 
 
 def _render_own(block: Block) -> str:
+    if block.type == "quote":
+        return block.payload.get("text", "")
     if block.type == "tweet":
         text = block.payload.get("text", "")
         handle = block.payload.get("handle", "")
