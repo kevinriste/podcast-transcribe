@@ -13,8 +13,11 @@ from mutagen.id3._util import ID3NoHeaderError  # noqa: PLC2701
 
 from podcast_shared.aside_render import render_block_aside as render_block_aside
 from podcast_shared.aside_render import resolve_markers as resolve_markers
+from podcast_shared.aside_render import serialize_flat as serialize_flat
 from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
+from podcast_shared.structural_extract import ASIDE_MARKER as ASIDE_MARKER
+from podcast_shared.structural_extract import BLOCKQUOTE_MARKER as BLOCKQUOTE_MARKER
 from podcast_shared.structural_extract import EMBED_MARKER_PREFIX as EMBED_MARKER_PREFIX
 from podcast_shared.structural_extract import EMBED_MARKER_SUFFIX as EMBED_MARKER_SUFFIX
 from podcast_shared.structural_extract import Block as Block
@@ -27,11 +30,9 @@ logger = logging.getLogger(__name__)
 
 SUMMARY_MODEL = "gemini-3.1-flash-lite"
 
-# Line prefix that intake writes ahead of each block-quotation line so downstream
-# stages can tell quoted passages from the author's own words. Chosen to survive
-# prepare-text cleaning (no brackets, underscores, or whitespace it would collapse)
-# and to never occur in prose; stripped before any text reaches the synthesizer.
-BLOCKQUOTE_MARKER = chr(0x276F) + " "  # U+276F HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT, then a space
+# BLOCKQUOTE_MARKER and ASIDE_MARKER are defined in the leaf module structural_extract
+# (so aside_render can import them without a circular dependency) and re-exported above;
+# every `from podcast_shared import BLOCKQUOTE_MARKER` keeps working unchanged.
 
 _gemini_client: genai.Client | None = None
 

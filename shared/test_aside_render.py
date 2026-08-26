@@ -2,8 +2,8 @@
 
 import logging
 
-from podcast_shared.aside_render import render_block_aside, resolve_markers
-from podcast_shared.structural_extract import Block, serialize_blocks
+from podcast_shared.aside_render import render_block_aside, resolve_markers, serialize_flat
+from podcast_shared.structural_extract import ASIDE_MARKER, BLOCKQUOTE_MARKER, Block, serialize_blocks
 
 logging.basicConfig(level=logging.INFO)
 
@@ -92,6 +92,24 @@ def test_render_image_from_caption() -> None:
         _fail(f"image aside was {out!r}")
 
 
+def test_serialize_flat_marks_quotes_and_asides() -> None:
+    """Text stays plain; quotes get BLOCKQUOTE_MARKER; embeds get ASIDE_MARKER."""
+    body = serialize_flat(
+        [
+            Block(type="text", payload={"text": "Intro."}),
+            Block(type="quote", payload={"text": "A quoted line."}),
+            Block(type="tweet", payload={"handle": "@x", "text": "hello"}),
+        ]
+    )
+    lines = [ln for ln in body.split("\n\n") if ln]
+    if lines[0] != "Intro.":
+        _fail(f"text line wrong: {lines!r}")
+    if lines[1] != f"{BLOCKQUOTE_MARKER}A quoted line.":
+        _fail(f"quote line wrong: {lines!r}")
+    if lines[2] != f"{ASIDE_MARKER}The author shares a tweet from @x: hello.":
+        _fail(f"aside line wrong: {lines!r}")
+
+
 def run_tests() -> None:
     """Run all aside-render tests."""
     test_render_tweet()
@@ -102,6 +120,7 @@ def run_tests() -> None:
     test_resolve_markers_drops_unknown_id()
     test_render_quote_is_verbatim()
     test_render_image_from_caption()
+    test_serialize_flat_marks_quotes_and_asides()
     logging.info("aside render tests passed")
 
 

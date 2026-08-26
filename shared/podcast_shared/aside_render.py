@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 
 from podcast_shared.structural_extract import (
+    ASIDE_MARKER,
+    BLOCKQUOTE_MARKER,
     EMBED_MARKER_PREFIX,
     EMBED_MARKER_SUFFIX,
     Block,
@@ -65,3 +67,27 @@ def resolve_markers(text: str, sidecar: dict[str, dict[str, object]]) -> str:
         return render_block_aside(block_from_dict(entry))
 
     return _MARKER_RE.sub(replace, text)
+
+
+def serialize_flat(blocks: list[Block]) -> str:
+    """Serialise blocks to flat marker body text for the TTS pipeline.
+
+    ``text`` stays plain; ``quote`` gets ``BLOCKQUOTE_MARKER`` (reusing the existing
+    quote-voice machinery); every other embed becomes ``ASIDE_MARKER`` + its rendered
+    aside (skipped when the aside is empty).
+
+    Returns:
+        The flat marker body, blocks joined by blank lines.
+
+    """
+    lines: list[str] = []
+    for block in blocks:
+        if block.type == "text":
+            lines.append(block.payload.get("text", ""))
+        elif block.type == "quote":
+            lines.append(f"{BLOCKQUOTE_MARKER}{block.payload.get('text', '')}")
+        else:
+            aside = render_block_aside(block)
+            if aside:
+                lines.append(f"{ASIDE_MARKER}{aside}")
+    return "\n\n".join(lines)

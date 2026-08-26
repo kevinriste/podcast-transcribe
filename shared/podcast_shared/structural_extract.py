@@ -182,6 +182,18 @@ def extract_blocks(region: Tag) -> list[Block]:
     return blocks
 
 
+# Line prefix intake writes ahead of each block-quotation line so downstream stages
+# can tell quoted passages from the author's own words. Chosen to survive prepare-text
+# cleaning (no brackets/underscores/collapsible whitespace) and to never occur in prose;
+# stripped before any text reaches the synthesizer. Defined here (a leaf module) so
+# aside_render and structural code can import it without a circular dependency; the
+# public name is re-exported from podcast_shared.__init__.
+BLOCKQUOTE_MARKER = chr(0x276F) + " "  # U+276F HEAVY RIGHT-POINTING ANGLE QUOTATION MARK ORNAMENT, then a space
+# Line prefix intake writes ahead of each rendered embed "aside" (tweet/image/...), so
+# text-to-speech can voice it in the meta-narrator aside voice. Same design rules as
+# BLOCKQUOTE_MARKER (survives cleaning, never in prose).
+ASIDE_MARKER = chr(0x2756) + " "  # U+2756 BLACK DIAMOND MINUS WHITE X, then a space
+
 EMBED_MARKER_PREFIX = "⟦EMBED:"
 EMBED_MARKER_SUFFIX = "⟧"
 
