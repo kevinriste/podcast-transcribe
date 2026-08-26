@@ -82,12 +82,26 @@ New module: `shared/podcast_shared/structural_extract.py` (extractor + block tre
 ## 5. Structural extractor
 
 ### 5.1 Content-region detection
-Pluggable, best-match-first, with a generic fallback:
-1. Platform hint table — Substack: `div.body.markup`; extend as learned.
-2. Semantic: first `<article>`, else the `<main>`.
-3. Density fallback: the element maximizing contained text length / descendant count,
-   excluding `nav/header/footer/aside`.
-Region detection failure → Gotify + treat whole document (still parse; never crash).
+Best-match-first; each strategy yields the raw-HTML DOM node whose subtree we walk
+(so embeds survive — we never hand the body to trafilatura):
+1. **Platform hint** — known containers, e.g. Substack `div.body.markup` (email);
+   extend as learned. Fast path, no trafilatura.
+2. **Semantic** — first `<article>`, else `<main>`.
+3. **trafilatura-anchored (arbitrary pages).** trafilatura's main-content detection is
+   stronger than a naive heuristic, so we borrow it without letting it strip embeds:
+   run trafilatura (`favor_recall`) for the narrative text, sample several distinctive
+   paragraph anchors from that output, locate those text nodes in the raw BeautifulSoup
+   DOM, and take their **lowest common ancestor** — that node bounds the region. This
+   is the primary method for non-Substack sources (link / rss `full_scraper` / archive
+   / garbageday). trafilatura's **metadata** (title/author/date) is captured in the
+   same pass.
+4. **Density fallback** — element maximizing text length / descendant count, excluding
+   `nav/header/footer/aside`, only when anchors can't be matched.
+Total failure → Gotify + walk the whole document (still parse; never crash).
+
+Thus trafilatura is retained as a first-class component — region locator + metadata +
+narrative floor — not merely a fallback; it is only removed from the role of *carrying
+the body text*, which it cannot do without destroying embeds.
 
 ### 5.2 Block tree
 `Block(type, payload: dict, children: list[Block])`, `@dataclass(slots=True)`.
@@ -244,7 +258,9 @@ Root cause of why only 2/261 items leak the trailing NUL still open.
 
 - Vision cost/latency on image-heavy issues (maangchi) — mitigate via batching; GPT-5.6
   free window may close (keep Gemini path warm).
-- Content-region density fallback quality on arbitrary sites (link mode).
+- trafilatura-anchored region detection (§5.1): robustness of paragraph-anchor
+  matching + LCA on arbitrary sites; how many anchors, and behavior when the article
+  text repeats (choose distinctive/longest paragraphs).
 - Short-code threshold `N` for reading code verbatim — pick during impl.
 - Aside-voice choice on the Gemini-routed single-voice path (no true second voice).
 - yt-dlp metadata fetches add network to intake — cache in the store.
