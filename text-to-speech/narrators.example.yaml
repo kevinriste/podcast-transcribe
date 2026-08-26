@@ -44,6 +44,10 @@ narrators:
 # en-US-Studio-*, en-US-Chirp3-HD-*). Omit this section to use the WaveNet defaults.
 comment_voices:
   narrator: en-US-Wavenet-F
+  # Voice for embedded-content "asides" (tweets, images, videos, ...) — the meta-
+  # narrator that announces content outside the article's own prose, recovered from
+  # the source HTML. Defaults to en-US-Wavenet-B. Use any Google Cloud TTS voice.
+  aside_voice: en-US-Wavenet-B
   quote_pool:
     - en-US-Wavenet-D
     - en-US-Wavenet-C

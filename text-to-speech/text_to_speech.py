@@ -119,6 +119,7 @@ class CommentVoicesConfig(TypedDict, total=False):
 
     narrator: str
     quote_pool: list[str]
+    aside_voice: str
 
 
 class EvergreenFeedConfig(TypedDict, total=False):
@@ -577,22 +578,27 @@ def article_multivoice_plan(content_text: str, engine: str) -> list[tuple[str, s
     return utterances if quote_runs >= MIN_BLOCKQUOTE_RUNS else None
 
 
-def load_comment_voices() -> tuple[str, list[str]]:
-    """Load the comment-episode narrator + quote-voice pool from narrators.yaml.
+# Voice for embedded-content asides (tweets/images/videos/...) when none is configured.
+DEFAULT_ASIDE_VOICE = "en-US-Wavenet-B"
+
+
+def load_comment_voices() -> tuple[str, list[str], str]:
+    """Load the narrator, quote-voice pool, and aside voice from narrators.yaml.
 
     Returns:
-        (narrator_voice, quote_pool), falling back to WaveNet defaults when the
-        comment_voices section is absent.
+        (narrator_voice, quote_pool, aside_voice), falling back to WaveNet defaults
+        when the comment_voices section is absent.
 
     """
     config_path = pathlib.Path(narrator_config_file)
     if not config_path.exists():
-        return DEFAULT_NARRATOR_VOICE, DEFAULT_QUOTE_POOL
+        return DEFAULT_NARRATOR_VOICE, DEFAULT_QUOTE_POOL, DEFAULT_ASIDE_VOICE
     config: NarratorConfig = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     cv = config.get("comment_voices", {})
     narrator = cv.get("narrator") or DEFAULT_NARRATOR_VOICE
     quote_pool = cv.get("quote_pool") or DEFAULT_QUOTE_POOL
-    return narrator, quote_pool
+    aside_voice = cv.get("aside_voice") or DEFAULT_ASIDE_VOICE
+    return narrator, quote_pool, aside_voice
 
 
 def parse_pub_date(metadata: dict[str, str]) -> datetime | None:
@@ -703,7 +709,7 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
     name = incoming_path.stem
     if is_comment_episode(metadata):
         logging.info("Routing %s to multi-voice comment synthesis", incoming_path.name)
-        narrator_voice, quote_pool = load_comment_voices()
+        narrator_voice, quote_pool, _ = load_comment_voices()
         article_summary = metadata.get("article_summary", "").strip()
         utterances = plan_utterances(
             parse_segments(content_text),
@@ -728,8 +734,8 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
     if plan is not None:
         quote_count = sum(1 for _, speaker in plan if speaker != "NARRATOR")
         logging.info("Routing %s to multi-voice article synthesis (%d quotes)", incoming_path.name, quote_count)
-        narrator_voice, quote_pool = load_comment_voices()
-        segments = render_utterances(plan, narrator_voice, quote_pool)
+        narrator_voice, quote_pool, aside_voice = load_comment_voices()
+        segments = render_utterances(plan, narrator_voice, quote_pool, aside_voice)
         if segments:
             finalize_episode(name, metadata, clean_content, segments)
             incoming_path.unlink()
