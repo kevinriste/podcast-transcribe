@@ -23,6 +23,8 @@
 /prepare-text/stats/
 /html-comparison/
 TTS-TEST-PLAN.md
+EMBED-RECOVERY-NOTES.md
+/email-corpus/
 text-to-speech/comparison_output*/
 /archive/state.json
 /archive/posts.json
