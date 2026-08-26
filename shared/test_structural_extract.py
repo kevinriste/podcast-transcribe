@@ -11,8 +11,10 @@ from podcast_shared.structural_extract import (
     Block,
     block_from_dict,
     extract_blocks,
+    extract_iframe,
     extract_tweet,
     find_content_region,
+    iframe_kind,
     is_tweet,
     serialize_blocks,
 )
@@ -214,6 +216,55 @@ def test_bare_image_and_decorative_filter() -> None:
         _fail(f"decorative filter wrong: {[b.payload for b in imgs]}")
 
 
+def test_iframe_kind_classifies_hosts() -> None:
+    """Hosts map to video/audio; unknown hosts are ''."""
+    cases = {
+        "https://www.youtube.com/embed/abc": "video",
+        "https://player.vimeo.com/video/1": "video",
+        "https://open.spotify.com/embed/x": "audio",
+        "https://w.soundcloud.com/player/?url=y": "audio",
+        "https://ads.example.com/widget": "",
+    }
+    for src, kind in cases.items():
+        if iframe_kind(src) != kind:
+            _fail(f"iframe_kind({src!r}) = {iframe_kind(src)!r}, expected {kind!r}")
+
+
+def test_extract_iframe_builds_block() -> None:
+    """A YouTube iframe with a title yields a video block; ads yield None."""
+    yt = BeautifulSoup('<iframe src="https://youtube.com/embed/x" title="My Talk"></iframe>', "html.parser").find(
+        "iframe"
+    )
+    if not isinstance(yt, Tag):
+        _fail("no iframe")
+    block = extract_iframe(yt)
+    if block is None or block.type != "video" or block.payload.get("title") != "My Talk":
+        _fail(f"video block wrong: {block!r}")
+    ad = BeautifulSoup('<iframe src="https://ads.x/w"></iframe>', "html.parser").find("iframe")
+    if isinstance(ad, Tag) and extract_iframe(ad) is not None:
+        _fail("ad iframe should be None")
+
+
+def test_extract_blocks_video_and_code() -> None:
+    """An iframe becomes a video block and a <pre> becomes a code block, in order."""
+    html = (
+        '<div class="body markup">'
+        "<p>Watch this.</p>"
+        '<iframe src="https://youtube.com/embed/x" title="Talk"></iframe>'
+        "<pre>print(42)</pre>"
+        '<iframe src="https://ads.x/w"></iframe>'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [b.type for b in blocks]
+    if kinds != ["text", "video", "code"]:
+        _fail(f"kinds were {kinds}")
+    if blocks[1].payload.get("title") != "Talk":
+        _fail(f"video title wrong: {blocks[1].payload}")
+    if blocks[2].payload.get("text") != "print(42)":
+        _fail(f"code text wrong: {blocks[2].payload}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -228,6 +279,9 @@ def run_tests() -> None:
     test_extract_blocks_marks_quotes()
     test_extract_image_from_figure()
     test_bare_image_and_decorative_filter()
+    test_iframe_kind_classifies_hosts()
+    test_extract_iframe_builds_block()
+    test_extract_blocks_video_and_code()
     logging.info("all structural-extractor tests passed")
 
 

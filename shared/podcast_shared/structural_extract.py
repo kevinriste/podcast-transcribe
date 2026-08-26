@@ -134,6 +134,40 @@ def extract_image(el: Tag) -> Block:
     return Block(type="image", payload={"alt": alt, "caption": caption, "src": src})
 
 
+_VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com", "loom.com", "wistia.")
+_AUDIO_HOSTS = ("spotify.com", "soundcloud.com", "transistor.fm")
+
+
+def iframe_kind(src: str) -> str:
+    """Classify an iframe ``src`` into ``"video"``/``"audio"``/``""``.
+
+    Returns:
+        The embed kind, or "" for an unrecognized host.
+
+    """
+    low = src.lower()
+    if any(host in low for host in _VIDEO_HOSTS):
+        return "video"
+    if any(host in low for host in _AUDIO_HOSTS) or "/podcast" in low or ("apple.com" in low and "podcast" in low):
+        return "audio"
+    return ""
+
+
+def extract_iframe(el: Tag) -> Block | None:
+    """Extract a video/audio iframe embed into a Block, or None for unknown hosts.
+
+    Returns:
+        A ``video``/``audio`` Block, or None.
+
+    """
+    src = str(el.get("src") or "")
+    kind = iframe_kind(src)
+    if not kind:
+        return None
+    title = str(el.get("title") or "").strip()
+    return Block(type=kind, payload={"title": title, "src": src})
+
+
 _TEXT_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 
 
@@ -150,7 +184,7 @@ def extract_blocks(region: Tag) -> list[Block]:
     blocks: list[Block] = []
     previous_text: str | None = None
     consumed: set[int] = set()  # id() of elements already emitted as a tweet
-    for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img")):
+    for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img", "iframe", "pre")):
         if any(id(ancestor) in consumed for ancestor in el.parents):
             continue
         if is_tweet(el):
@@ -168,6 +202,18 @@ def extract_blocks(region: Tag) -> list[Block]:
                 continue
             blocks.append(extract_image(el))
             previous_text = None
+            continue
+        if el.name == "iframe":
+            embed = extract_iframe(el)
+            if embed is not None:
+                blocks.append(embed)
+                previous_text = None
+            continue
+        if el.name == "pre":
+            code_text = el.get_text("\n").strip()
+            if code_text:
+                blocks.append(Block(type="code", payload={"text": code_text}))
+                previous_text = None
             continue
         if el.name not in _TEXT_TAGS:
             continue

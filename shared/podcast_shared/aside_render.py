@@ -33,6 +33,12 @@ def _render_own(block: Block) -> str:
     if block.type == "image":
         desc = block.payload.get("description") or block.payload.get("caption") or block.payload.get("alt") or ""
         return f"Image: {desc}." if desc else "The author includes an image."
+    if block.type in {"video", "audio"}:
+        noun = "a video" if block.type == "video" else "an audio clip"
+        title = block.payload.get("title", "")
+        return f"The author shares {noun} titled '{title}'." if title else f"The author shares {noun}."
+    if block.type == "code":
+        return "The author includes a code block."
     return "The author includes embedded content."
 
 

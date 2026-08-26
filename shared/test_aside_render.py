@@ -110,6 +110,22 @@ def test_serialize_flat_marks_quotes_and_asides() -> None:
         _fail(f"aside line wrong: {lines!r}")
 
 
+def test_render_video_audio_code() -> None:
+    """Video/audio/code render as concise announced asides."""
+    v = render_block_aside(Block(type="video", payload={"title": "My Talk", "src": "u"}))
+    if v != "The author shares a video titled 'My Talk'.":
+        _fail(f"video aside was {v!r}")
+    v2 = render_block_aside(Block(type="video", payload={"title": "", "src": "u"}))
+    if v2 != "The author shares a video.":
+        _fail(f"titleless video aside was {v2!r}")
+    a = render_block_aside(Block(type="audio", payload={"title": "Ep 12", "src": "u"}))
+    if a != "The author shares an audio clip titled 'Ep 12'.":
+        _fail(f"audio aside was {a!r}")
+    c = render_block_aside(Block(type="code", payload={"text": "print(1)"}))
+    if c != "The author includes a code block.":
+        _fail(f"code aside was {c!r}")
+
+
 def run_tests() -> None:
     """Run all aside-render tests."""
     test_render_tweet()
@@ -120,6 +136,7 @@ def run_tests() -> None:
     test_resolve_markers_drops_unknown_id()
     test_render_quote_is_verbatim()
     test_render_image_from_caption()
+    test_render_video_audio_code()
     test_serialize_flat_marks_quotes_and_asides()
     logging.info("aside render tests passed")
 
