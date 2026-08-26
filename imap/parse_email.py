@@ -22,8 +22,11 @@ from playwright.sync_api import sync_playwright
 from podcast_shared import (
     BLOCKQUOTE_MARKER,
     apply_id3_tags,
+    extract_blocks,
+    find_content_region,
     generate_summary,
     send_gotify_notification,
+    serialize_flat,
     store_intake_html,
 )
 from trafilatura import bare_extraction, extract
@@ -237,13 +240,20 @@ _LIST_MARKER_RE = re.compile(r"^\s*[*•\-]\s+")
 
 
 def extract_body_from_html(msg: MailMessage) -> str | None:
-    """Extract readable body text from an email's HTML part.
+    """Extract flat marker body text from an email's HTML part.
+
+    Runs the structural extractor over the article content region, so block quotes
+    become ``BLOCKQUOTE_MARKER`` lines and embedded content (tweets, images, ...)
+    becomes ``ASIDE_MARKER`` asides — recovering content the old block-walk dropped.
 
     Returns:
-        The extracted body text, or None if there is no HTML or no text.
+        The serialized body text, or None if there is no HTML or no extractable content.
 
     """
-    return extract_body_text(msg.html)
+    if not msg.html:
+        return None
+    body = serialize_flat(extract_blocks(find_content_region(msg.html)))
+    return body or None
 
 
 def extract_body_text(html: str | None) -> str | None:
