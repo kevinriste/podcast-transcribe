@@ -11,6 +11,9 @@ from mutagen.id3 import ID3
 from mutagen.id3._frames import TIT2, TT3, WXXX  # noqa: PLC2701
 from mutagen.id3._util import ID3NoHeaderError  # noqa: PLC2701
 
+from podcast_shared.intake_store import slug_source as slug_source
+from podcast_shared.intake_store import store_intake_html as store_intake_html
+
 logger = logging.getLogger(__name__)
 
 SUMMARY_MODEL = "gemini-3.1-flash-lite"
