@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Shared utilities for podcast-transcribe pipeline"
 requires-python = ">=3.12"
 dependencies = [
+    "beautifulsoup4>=4.12",
     "google-genai>=1.0.0",
     "mutagen>=1.47.0",
     "requests>=2.32.3",
