@@ -19,7 +19,13 @@ from imap_tools.mailbox import MailBox
 from imap_tools.message import MailMessage
 from imap_tools.query import AND
 from playwright.sync_api import sync_playwright
-from podcast_shared import BLOCKQUOTE_MARKER, apply_id3_tags, generate_summary, send_gotify_notification
+from podcast_shared import (
+    BLOCKQUOTE_MARKER,
+    apply_id3_tags,
+    generate_summary,
+    send_gotify_notification,
+    store_intake_html,
+)
 from trafilatura import bare_extraction, extract
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -486,6 +492,13 @@ def main() -> None:
                     logging.info("Writing raw metadata and text to text input")
                     _ = pathlib.Path(output_filename).write_text(
                         metadata_block + "\n\n" + email_text_raw, encoding="utf-8"
+                    )
+                    _ = store_intake_html(
+                        source=from_name_raw,
+                        episode_id=date_stamp,
+                        html=msg.html or "",
+                        url=source_url,
+                        intake_type="email",
                     )
                 elif subject_for_filter_lower == "youtube":
                     email_text_raw = msg.text
