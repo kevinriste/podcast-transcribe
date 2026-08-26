@@ -22,6 +22,8 @@ from playwright.sync_api import sync_playwright
 from podcast_shared import (
     BLOCKQUOTE_MARKER,
     apply_id3_tags,
+    describe_image,
+    enrich_images,
     extract_blocks,
     find_content_region,
     generate_summary,
@@ -245,6 +247,9 @@ def extract_body_from_html(msg: MailMessage) -> str | None:
     Runs the structural extractor over the article content region, so block quotes
     become ``BLOCKQUOTE_MARKER`` lines and embedded content (tweets, images, ...)
     becomes ``ASIDE_MARKER`` asides — recovering content the old block-walk dropped.
+    Content images are vision-described (layered on alt/caption) unless
+    ``EMBED_VISION=0`` or no ``OPENAI_API_KEY`` is set, in which case image asides fall
+    back to caption/alt.
 
     Returns:
         The serialized body text, or None if there is no HTML or no extractable content.
@@ -252,7 +257,10 @@ def extract_body_from_html(msg: MailMessage) -> str | None:
     """
     if not msg.html:
         return None
-    body = serialize_flat(extract_blocks(find_content_region(msg.html)))
+    blocks = extract_blocks(find_content_region(msg.html))
+    if os.environ.get("EMBED_VISION", "1") != "0":
+        enrich_images(blocks, describe_image)
+    body = serialize_flat(blocks)
     return body or None
 
 
