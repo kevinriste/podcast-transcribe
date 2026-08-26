@@ -16,7 +16,7 @@ from dateutil import parser
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
-from podcast_shared import send_gotify_notification
+from podcast_shared import send_gotify_notification, store_intake_html
 from trafilatura import bare_extraction, extract
 
 enable_diagnosis = False
@@ -143,14 +143,16 @@ def record_poll(clean_feed_name: str, now: datetime) -> None:
 class ScrapeResult:
     """Outcome of a full-article scrape attempt.
 
-    Exactly one field is set: ``content`` holds the article text on success,
-    ``error`` holds a human-readable reason on failure. The reason is written to
-    the logs and forwarded to Gotify so failures are diagnosable without shelling
-    into the container.
+    On success ``content`` holds the article text and ``raw_html`` the fetched page
+    HTML (persisted to the intake store for later re-processing); on failure
+    ``error`` holds a human-readable reason. The reason is written to the logs and
+    forwarded to Gotify so failures are diagnosable without shelling into the
+    container.
     """
 
     content: str | None = None
     error: str | None = None
+    raw_html: str | None = None
 
 
 def _body_snippet(html_content: str, limit: int = 300) -> str:
@@ -238,7 +240,7 @@ def fetch_full_article(original_url: str, scraper_url: str, check_phrases: tuple
             ),
         )
 
-    return ScrapeResult(content=content_text)
+    return ScrapeResult(content=content_text, raw_html=html_content)
 
 
 def main() -> None:
@@ -362,6 +364,7 @@ def main() -> None:
                 meta_title = entry_title_raw
                 original_url = get_entry_link(parsed_feed_entry)
 
+                raw_html = ""
                 content_text: str
                 if feed.mode == "description":
                     summary: str = str(getattr(parsed_feed_entry, "summary", "") or "")
@@ -378,10 +381,12 @@ def main() -> None:
                         )
                         break
                     content_text = scrape.content
+                    raw_html = scrape.raw_html or ""
                 else:
                     content_list: list[object] = getattr(parsed_feed_entry, "content", [])
                     if content_list:
                         content_value: str = str(getattr(content_list[0], "value", ""))
+                        raw_html = content_value
                         soup = BeautifulSoup(content_value, "html.parser")
                         content_text = soup.get_text()
                     else:
@@ -397,6 +402,13 @@ def main() -> None:
                 )
                 logging.info("Writing raw metadata and text to text input")
                 _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
+                _ = store_intake_html(
+                    source=feed_title_raw,
+                    episode_id=date_stamp,
+                    html=raw_html,
+                    url=original_url,
+                    intake_type="rss",
+                )
                 pathlib.Path(guid_dir).mkdir(parents=True, exist_ok=True)
                 entry_id: str = str(getattr(parsed_feed_entry, "id", ""))
                 _ = pathlib.Path(guid_filename).write_text(entry_id, encoding="utf-8")
