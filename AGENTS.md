@@ -33,7 +33,7 @@
 - RSS titles come from ID3 title when present; otherwise filename.
 
 ## Audio Retention
-- Weekly cutoff before Dropcaster: files older than 8 weeks moved to `dropcaster-docker/audio-archive`.
+- Weekly cutoff before Dropcaster: topical-feed files older than `PODCAST_RETENTION_WEEKS` (default 8) moved to `dropcaster-docker/audio-archive` (moved, never deleted; evergreen subdir is left to accumulate).
 - Logic lives in `process.sh`.
 
 ## YouTube Notes
@@ -54,7 +54,8 @@
 
 ## Env Vars
 - `GMAIL_PODCAST_ACCOUNT`, `GMAIL_PODCAST_ACCOUNT_APP_PASSWORD`
-- `OPENAI_API_KEY`
+- `OPENAI_API_KEY` (comment briefings + embed image vision), `EMBED_VISION` (`0` disables vision), `EMBED_VISION_MODEL`, `EMBED_DROP_TYPES`
+- `PODCAST_RETENTION_WEEKS` (topical-feed retention, default 8)
 - `GOTIFY_SERVER`, `GOTIFY_TOKEN`
 - `PODCAST_DOMAIN_PRIMARY`, `PODCAST_DOMAIN_SECONDARY`
 - `GOOGLE_APPLICATION_CREDENTIALS` (Google TTS)

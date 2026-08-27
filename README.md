@@ -53,7 +53,7 @@ flowchart TB
     subgraph publish ["Publish"]
         direction TB
         audio_dir[("dropcaster-docker/audio/")]
-        archive["Archive > 8 weeks"]
+        archive["Archive > retention<br/><small>PODCAST_RETENTION_WEEKS, default 8</small>"]
         dropcaster["Dropcaster<br/><small>Docker, regenerates index.rss<br/>only when audio changes</small>"]
         feed["Podcast RSS Feed"]
 
@@ -127,7 +127,7 @@ Article text content starts here...
 
 - **ID3 tags** via mutagen (v1 + v2): `TIT2` (title), `TT3` (description with summary + source link), `WXXX` (source URL)
 - **Feed generation**: Dropcaster (Ruby, Docker) reads MP3 ID3 tags and generates `index.rss`
-- **Lifecycle**: Audio older than 8 weeks is archived weekly
+- **Lifecycle**: Topical-feed audio older than `PODCAST_RETENTION_WEEKS` (default 8) is archived weekly (moved to `audio-archive/`, never deleted; the evergreen feed accumulates)
 
 ## Project Structure
 
