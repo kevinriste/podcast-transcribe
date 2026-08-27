@@ -8,6 +8,15 @@ LOG_DIR="${LOG_DIR:-$HOME/podcast-transcribe-logs}"
 mkdir -p "$LOG_DIR"
 RUN_LOG="$LOG_DIR/${FIRST_LOG_DATE}.log"
 
+# Serialize runs: the pipeline drains a shared text-input queue and unlinks each file as it
+# renders, so two concurrent runs (e.g. a long run overrunning the 20-min cron interval)
+# race and crash on the vanished file. Skip this cycle if a previous run still holds the lock.
+exec 9>"$LOG_DIR/process.lock"
+if ! flock -n 9; then
+    echo "Main--Previous run still in progress; skipping this cycle." | tee "$RUN_LOG"
+    exit 0
+fi
+
 RUN_LOG="$RUN_LOG" bash "$REPO_DIR/process.sh" "$FIRST_LOG_DATE" 2>&1
 exit_code=${PIPESTATUS[0]}
 if [ "$exit_code" -ne 0 ]; then
