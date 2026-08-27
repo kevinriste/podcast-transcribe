@@ -376,6 +376,23 @@ def test_small_images_are_decorative() -> None:
         _fail(f"expected 2 images, got {len(imgs)}: {[b.payload.get('src') for b in imgs]}")
 
 
+def test_small_percent_width_images_are_decorative() -> None:
+    """Images sized to a small fraction of the column (e.g. Beehiiv's 20% play-icon glyph) are skipped."""
+    html = (
+        '<div id="content-blocks">'
+        '<img src="https://x/youtube_play_icon.png" width="20%">'
+        '<img src="https://x/left.png" width="50%">'
+        '<img src="https://x/full.png" width="100%">'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    srcs = [b.payload.get("src", "") for b in blocks if b.type == "image"]
+    if any("youtube_play_icon" in s for s in srcs):
+        _fail(f"20% glyph should be dropped: {srcs}")
+    if len(srcs) != 2:  # 50% and 100% content images kept
+        _fail(f"expected 2 images (50%, 100%), got {srcs}")
+
+
 def test_find_content_region_matched_signals_fallback() -> None:
     """A recognized container reports matched=True; whole-doc fallback reports False."""
     _, matched_sub = find_content_region_matched('<div class="body markup"><p>x</p></div>')
@@ -433,6 +450,7 @@ def run_tests() -> None:
     test_extract_footnote_and_card()
     test_footnote_inline_at_reference()
     test_small_images_are_decorative()
+    test_small_percent_width_images_are_decorative()
     test_find_content_region_matched_signals_fallback()
     test_find_content_region_beehiiv()
     logging.info("all structural-extractor tests passed")

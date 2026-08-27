@@ -123,6 +123,10 @@ _DECORATIVE_CLASS_RE = re.compile(r"\b(?:avatar|icon|logo|badge|emoji)\b")
 # Images narrower than this (explicit px width) are platform icons/like-buttons/dividers
 # (e.g. Beehiiv's 68-75px social glyphs), not article content — skip them.
 _MIN_CONTENT_IMG_WIDTH = 100
+# Images sized to at most this fraction of the column (explicit % width) are inline glyphs,
+# not content — e.g. Beehiiv's 20% play-button overlay. Content runs 100%/50%/33%.
+_MAX_DECORATIVE_PCT_WIDTH = 25
+_PCT_WIDTH_RE = re.compile(r"(\d+)%")
 
 
 def _is_decorative(el: Tag) -> bool:
@@ -131,7 +135,7 @@ def _is_decorative(el: Tag) -> bool:
     Returns:
         True for icon/avatar/logo/badge/emoji or ``data:`` images (by class/src,
         regardless of alt — tweet avatars carry the author's name as alt), and for
-        empty-alt images with a small explicit pixel width.
+        empty-alt images sized to a small explicit width (px < 100, or a small % of column).
 
     """
     src = str(el.get("src") or "")
@@ -139,8 +143,11 @@ def _is_decorative(el: Tag) -> bool:
         return True
     if str(el.get("alt") or "").strip():
         return False
-    width = str(el.get("width") or "")
-    return width.isdigit() and int(width) < _MIN_CONTENT_IMG_WIDTH  # icon/logo/emoji, not content
+    width = str(el.get("width") or "").strip()
+    if width.isdigit():
+        return int(width) < _MIN_CONTENT_IMG_WIDTH  # icon/logo/emoji, not content
+    pct = _PCT_WIDTH_RE.fullmatch(width)  # a small fraction of the column is an inline glyph
+    return pct is not None and int(pct.group(1)) <= _MAX_DECORATIVE_PCT_WIDTH
 
 
 def extract_image(el: Tag) -> Block:
