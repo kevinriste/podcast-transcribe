@@ -24,10 +24,19 @@ extractor shrinks the legacy cleaning surface toward whitespace-only for everyon
 ## Scope
 
 1. **Generalize `find_content_region`** beyond Substack:
-   - Add Beehiiv content-container detection (inspect real Beehiiv/garbageday DOM — likely
-     a table-based content cell or a known wrapper class; verify against `email-corpus`).
-   - Keep the Substack → Beehiiv → `<article>` → whole-doc precedence; add per-platform
-     structural probes rather than source-name coupling (stay generic/portable).
+   - **Beehiiv container is `id="content-blocks"`** — ANALYZED (garbageday corpus, 100/100
+     files). It's Beehiiv's analog to Substack's `div.body.markup`; masthead + footer
+     (unsubscribe/©/address) sit OUTSIDE it (verified), so scoping to it excludes all
+     chrome structurally. Scoping cut a sample from 68 blocks (with masthead+footer+junk
+     images) to 53 clean blocks; junk images 17→9. Selector: `soup.select_one("#content-blocks")`.
+   - Precedence: Substack (`div.body.markup`) → Beehiiv (`#content-blocks`) → `<article>`
+     → whole-doc. Structural probes only, no source-name coupling (stay generic/portable).
+   - Block handlers need NO Beehiiv additions: garbageday uses h2/p/img/inline-a (all
+     handled); embeds are bare links (kept as text); no footnotes/cards. Only possible
+     tweak: add any Beehiiv decorative-image class to `_is_decorative` (spot-check the ~9
+     in-body images for section dividers).
+   - VALIDATION GAP: garbageday is the only Beehiiv publisher in the corpus. `content-blocks`
+     is a Beehiiv *platform* id (should generalize) but confirm against a 2nd Beehiiv sender.
    - Regression-test each platform's region on real corpus files (block counts, no
      nav/footer leakage).
 
@@ -55,6 +64,6 @@ serialized output, then render one real episode per newly-migrated platform and 
 no boilerplate leakage and correct aside voicing.
 
 ## Open questions for the maintainer
-- Beehiiv region: is there a stable structural anchor across Beehiiv senders, or does it
-  vary per publication (needing a small per-platform probe list)?
+- Beehiiv region: `#content-blocks` confirmed on garbageday (100/100). Stable across other
+  Beehiiv senders? (platform id, expected yes — confirm when a 2nd sender appears.)
 - RSS `description`-mode feeds (podcasts): leave as-is (summaries), or also structure?
