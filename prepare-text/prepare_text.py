@@ -13,6 +13,7 @@ import re
 import shutil
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Literal, TypedDict
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -632,6 +633,49 @@ def normalize_roman_numerals(text: str) -> tuple[str, int]:
     return _ROMAN_HEADER_RE.sub(replace_header, text), count
 
 
+# Cleaning steps that only repair lossy plain-text intake; skipped for text produced by
+# the structural HTML extractor (which excludes boilerplate by DOM position and needs no
+# wrap/markdown/footnote repair). Whitespace, end-of-line pauses, and URL-to-context stay
+# on for every profile because they are non-destructive.
+STRUCTURED_ONLY_SKIP = frozenset({
+    "beehiiv_plaintext_conversion",
+    "beehiiv_emphasis_removal",
+    "unwrap_hard_wraps",
+    "footnote_relocation",
+    "roman_numeral_normalization",
+    "legal_bracket_unwrap",
+    "triple_dash_removal",
+    "empty_bracket_removal",
+    "unsubscribe_removal",
+    "view_online_removal",
+    "substack_refs_removal",
+    "substack_boilerplate_removal",
+    "standalone_at_removal",
+})
+
+_URL_RE = re.compile(r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b[-a-zA-Z0-9@:%_\+.~#?&//=]*")
+
+
+def urls_to_context(text: str) -> tuple[str, int]:
+    """Replace bare URLs with a spoken "a link to <host>" so context survives narration.
+
+    Non-destructive by design: previously URLs were deleted, which could empty a footnote
+    whose content was only a link. Keeping the host preserves the reference for the listener.
+
+    Returns:
+        The rewritten text and the number of URLs replaced.
+
+    """
+
+    def _link(match: re.Match[str]) -> str:
+        host = urlparse(match.group(0)).netloc.removeprefix("www.").split(":")[0]
+        return f"a link to {host}" if host else "a link"
+
+    rewritten, count = _URL_RE.subn(_link, text)
+    rewritten, bbg = re.subn(r"<?bbg://[^\s>]*>?", "a link", rewritten)
+    return rewritten, count + bbg
+
+
 def apply_general_cleaning(
     text: str,
     metadata: dict[str, str],
@@ -648,6 +692,9 @@ def apply_general_cleaning(
     overrides: list[CleaningOverride] = gc_config.get("overrides") or []
 
     def is_enabled(key: str) -> bool:
+        # Structural-extractor output needs none of the plain-text repair steps.
+        if metadata.get("extraction") == "structured" and key in STRUCTURED_ONLY_SKIP:
+            return False
         # Check per-source overrides first
         for override in overrides:
             match_val = override.get("match")
@@ -698,21 +745,11 @@ def apply_general_cleaning(
         if roman_count:
             stats["roman_numeral_normalization"] = {"converted": roman_count}
 
-    # URL removal
+    # URL to spoken context ("a link to hyvee.com"), non-destructive (keeps the reference).
     if is_enabled("url_removal"):
-        result = count_and_sub(
-            r"https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)",
-            "",
-            result,
-            "url_removal",
-        )
-        # Proprietary non-http(s) links (e.g. bbg://news/stories/ABC123).
-        result = count_and_sub(
-            r"<?bbg:\/\/[^\s>]*>?",
-            "",
-            result,
-            "bbg_url_removal",
-        )
+        result, url_count = urls_to_context(result)
+        if url_count:
+            stats["url_removal"] = {"replaced": url_count}
 
     # Legal bracket unwrap [t]he -> the
     if is_enabled("legal_bracket_unwrap"):

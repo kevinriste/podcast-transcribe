@@ -466,6 +466,7 @@ def main() -> None:
                     )
                     logging.info("parsing email: %s", output_filename)
                     email_text_raw = msg.text
+                    extraction = "plaintext"  # structural-extractor output flips this to "structured"
                     has_beehiiv = bool(msg.headers.get("x-beehiiv-ids"))
                     custom_source: CustomSource | None = None
                     if has_beehiiv:
@@ -480,6 +481,7 @@ def main() -> None:
                             html_body = extract_body_from_html(msg)
                             if html_body:
                                 email_text_raw = html_body
+                                extraction = "structured"
                             else:
                                 logging.warning("No HTML body for %s email; using plain text", source_kind)
                     else:
@@ -490,6 +492,7 @@ def main() -> None:
                         html_body = extract_body_from_html(msg)
                         if html_body:
                             email_text_raw = html_body
+                            extraction = "structured"
                         else:
                             logging.warning("No HTML body for %s email; using plain text", source_kind)
                     all_links = extract_links_from_email(msg)
@@ -508,6 +511,7 @@ def main() -> None:
                             f"META_SOURCE_KIND: {source_kind}",
                             f"META_SOURCE_NAME: {from_name_raw}",
                             "META_INTAKE_TYPE: email",
+                            f"META_EXTRACTION: {extraction}",
                         ],
                     )
                     logging.info("Writing raw metadata and text to text input")
