@@ -46,7 +46,7 @@ dev = [
 requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "openai", specifier = ">=1.60.0" },
-    { name = "podcast-shared", directory = "../shared" },
+    { name = "podcast-shared", editable = "../shared" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "trafilatura", specifier = ">=2.0.0" },
@@ -660,7 +660,7 @@ wheels = [
 [[package]]
 name = "podcast-shared"
 version = "0.1.0"
-source = { directory = "../shared" }
+source = { editable = "../shared" }
 dependencies = [
     { name = "google-genai" },
     { name = "mutagen" },

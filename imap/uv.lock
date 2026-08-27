@@ -452,7 +452,7 @@ requires-dist = [
     { name = "imap-tools", specifier = ">=1.9.0" },
     { name = "markdown", specifier = ">=3.7" },
     { name = "playwright", specifier = ">=1.49.1" },
-    { name = "podcast-shared", directory = "../shared" },
+    { name = "podcast-shared", editable = "../shared" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "trafilatura", specifier = ">=2.0.0" },
     { name = "yt-dlp", specifier = ">=2025.10.14" },
@@ -692,7 +692,7 @@ wheels = [
 [[package]]
 name = "podcast-shared"
 version = "0.1.0"
-source = { directory = "../shared" }
+source = { editable = "../shared" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "google-genai" },

@@ -620,7 +620,7 @@ wheels = [
 [[package]]
 name = "podcast-shared"
 version = "0.1.0"
-source = { directory = "../shared" }
+source = { editable = "../shared" }
 dependencies = [
     { name = "google-genai" },
     { name = "mutagen" },
@@ -971,7 +971,7 @@ requires-dist = [
     { name = "feedparser", specifier = ">=6.0.11" },
     { name = "msgspec", specifier = ">=0.19.0" },
     { name = "playwright", specifier = ">=1.49.1" },
-    { name = "podcast-shared", directory = "../shared" },
+    { name = "podcast-shared", editable = "../shared" },
     { name = "python-dateutil", specifier = ">=2.9.0.post0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "trafilatura", specifier = ">=2.0.0" },

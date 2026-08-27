@@ -26,4 +26,4 @@ extend = "../pyproject.toml"
 extends = "../pyproject.toml"
 
 [tool.uv.sources]
-podcast-shared = { path = "../shared" }
+podcast-shared = { path = "../shared", editable = true }
