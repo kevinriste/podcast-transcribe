@@ -7,6 +7,7 @@ the LLM fallback, non-Substack region detection, and the renderer.
 from __future__ import annotations
 
 import re
+import string
 from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
@@ -168,11 +169,67 @@ def extract_iframe(el: Tag) -> Block | None:
     return Block(type=kind, payload={"title": title, "src": src})
 
 
+_SUPERSCRIPT = str.maketrans("⁰¹²³⁴⁵⁶⁷⁸⁹", string.digits)
+
+
+def _footnote_refs(el: Tag) -> list[Tag]:
+    """Find in-text footnote reference elements (``span.footnote-anchor-email``, ...).
+
+    Returns:
+        The reference elements in document order.
+
+    """
+    return list(el.find_all(class_=re.compile(r"footnote-anchor")))
+
+
+def _collect_footnotes(region: Tag) -> tuple[dict[str, Block], list[str]]:
+    """Collect footnote definition divs into a number→Block map and remove them from ``region``.
+
+    Definitions live at the end of the body; pulling them out here lets the walk inline
+    each footnote right after the paragraph whose reference marker cites it.
+
+    Returns:
+        ``(defs, order)`` — the number→Block map and the definition order (for orphans).
+
+    """
+    defs: dict[str, Block] = {}
+    order: list[str] = []
+    def_divs = [d for d in region.find_all("div") if "footnote" in _classes(d) and "footnote-content" not in _classes(d)]
+    for d in def_divs:
+        block = extract_footnote(d)
+        if block is not None:
+            number = str(block.payload.get("number", "")) or str(len(order) + 1)
+            defs[number] = block
+            order.append(number)
+    for d in def_divs:
+        d.decompose()
+    return defs, order
+
+
+def _resolve_footnote(
+    number: str, defs: dict[str, Block], order: list[str], referenced: set[str]
+) -> Block | None:
+    """Resolve a reference number to its footnote Block, once.
+
+    Prefers an exact number match; falls back to the next unreferenced definition in
+    document order (covering references whose glyph did not parse to a known number).
+
+    Returns:
+        The footnote Block to inline, or None when already used or unresolvable.
+
+    """
+    if number in defs and number not in referenced:
+        referenced.add(number)
+        return defs[number]
+    for candidate in order:
+        if candidate not in referenced:
+            referenced.add(candidate)
+            return defs[candidate]
+    return None
+
+
 def extract_footnote(el: Tag) -> Block | None:
     """Extract a Substack footnote definition div into a footnote Block.
-
-    Substack email HTML carries no in-text footnote reference markers, so footnotes
-    are emitted in document order (naturally last) as numbered notes.
 
     Returns:
         A ``footnote`` Block, or None when it has no text.
@@ -225,6 +282,8 @@ def extract_blocks(region: Tag) -> list[Block]:
     blocks: list[Block] = []
     previous_text: str | None = None
     consumed: set[int] = set()  # id() of elements already emitted as a tweet
+    footnote_defs, footnote_order = _collect_footnotes(region)  # removes def divs from region
+    referenced: set[str] = set()
     for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img", "iframe", "pre", "div")):
         if any(id(ancestor) in consumed for ancestor in el.parents):
             continue
@@ -265,24 +324,28 @@ def extract_blocks(region: Tag) -> list[Block]:
                     consumed.add(id(el))
                     previous_text = None
                 continue
-            if "footnote" in classes:
-                footnote = extract_footnote(el)
-                if footnote is not None:
-                    blocks.append(footnote)
-                    consumed.add(id(el))
-                    previous_text = None
-                continue
             continue
         if el.name not in _TEXT_TAGS:
             continue
         if el.find(_TEXT_TAGS):  # skip block nested in a block (dedupe)
             continue
+        ref_numbers = [r.get_text().translate(_SUPERSCRIPT).strip() for r in _footnote_refs(el)]
+        for r in _footnote_refs(el):
+            r.decompose()  # drop the superscript glyph so it is not read aloud
         text = " ".join(el.get_text(" ").split())
         if not text or text == previous_text:
             continue
         previous_text = text
         is_quote = el.name == "blockquote" or el.find_parent("blockquote") is not None
         blocks.append(Block(type="quote" if is_quote else "text", payload={"text": text}))
+        for number in ref_numbers:  # inline each cited footnote right after its paragraph
+            footnote = _resolve_footnote(number, footnote_defs, footnote_order, referenced)
+            if footnote is not None:
+                blocks.append(footnote)
+    for number in footnote_order:  # any footnotes never cited in text, appended in order
+        if number not in referenced:
+            blocks.append(footnote_defs[number])
+            referenced.add(number)
     return blocks
 
 

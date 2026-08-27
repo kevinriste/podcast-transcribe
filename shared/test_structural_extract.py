@@ -297,6 +297,29 @@ def test_extract_footnote_and_card() -> None:
         _fail(f"footnote payload wrong: {fn.payload}")
 
 
+def test_footnote_inline_at_reference() -> None:
+    """A footnote is inlined right after its citing paragraph, and the glyph is stripped."""
+    html = (
+        '<div class="body markup">'
+        '<p>First point.<span class="footnote-anchor-email">¹</span></p>'
+        "<p>Second point, no note.</p>"
+        '<p>Third point.<span class="footnote-anchor-email">²</span></p>'
+        '<div class="footnote"><span class="footnote-number">1</span>'
+        '<div class="footnote-content">Note one.</div></div>'
+        '<div class="footnote"><span class="footnote-number">2</span>'
+        '<div class="footnote-content">Note two.</div></div>'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [b.type for b in blocks]
+    if kinds != ["text", "footnote", "text", "text", "footnote"]:
+        _fail(f"inline order wrong: {kinds}")
+    if blocks[0].payload.get("text") != "First point.":  # superscript glyph must be gone
+        _fail(f"glyph leaked into text: {blocks[0].payload}")
+    if blocks[1].payload.get("text") != "Note one." or blocks[4].payload.get("text") != "Note two.":
+        _fail(f"footnote content mismatched to reference: {blocks[1].payload} / {blocks[4].payload}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -315,6 +338,7 @@ def run_tests() -> None:
     test_extract_iframe_builds_block()
     test_extract_blocks_video_and_code()
     test_extract_footnote_and_card()
+    test_footnote_inline_at_reference()
     logging.info("all structural-extractor tests passed")
 
 
