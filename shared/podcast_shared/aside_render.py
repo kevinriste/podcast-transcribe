@@ -19,6 +19,9 @@ from podcast_shared.structural_extract import (
 )
 
 _MARKER_RE = re.compile(re.escape(EMBED_MARKER_PREFIX) + r"(\d+)" + re.escape(EMBED_MARKER_SUFFIX))
+# Placeholder alt values (e.g. Substack's generic alt="Image") that carry no real
+# description — never speak them as the image's content.
+_GENERIC_IMAGE_ALTS = frozenset({"image", "photo", "picture", "img"})
 
 
 def _render_own(block: Block) -> str:
@@ -31,8 +34,10 @@ def _render_own(block: Block) -> str:
             return f"The author shares a tweet from {handle}: {text}."
         return f"The author shares a tweet: {text}."
     if block.type == "image":
-        desc = block.payload.get("description") or block.payload.get("caption") or block.payload.get("alt") or ""
-        if not desc:
+        desc = (block.payload.get("description") or block.payload.get("caption") or block.payload.get("alt") or "").strip()
+        # Substack uses a generic alt="Image"; on vision failure that would render as
+        # "Image: Image." — treat such placeholder alts as no description.
+        if not desc or desc.lower() in _GENERIC_IMAGE_ALTS:
             return "The author includes an image."
         desc = desc.rstrip()
         return f"Image: {desc}" if desc[-1:] in ".!?" else f"Image: {desc}."

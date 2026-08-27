@@ -92,6 +92,18 @@ def test_render_image_from_caption() -> None:
         _fail(f"image aside was {out!r}")
 
 
+def test_render_image_generic_alt_is_not_a_description() -> None:
+    """A degenerate alt like Substack's 'Image' must not render as 'Image: Image.'."""
+    # No description (vision failed/disabled), no caption, generic alt.
+    out = render_block_aside(Block(type="image", payload={"alt": "Image", "caption": "", "description": ""}))
+    if out != "The author includes an image.":
+        _fail(f"generic alt leaked as description: {out!r}")
+    # A real vision description still wins.
+    out2 = render_block_aside(Block(type="image", payload={"alt": "Image", "description": "A red barn at dusk"}))
+    if out2 != "Image: A red barn at dusk.":
+        _fail(f"real description dropped: {out2!r}")
+
+
 def test_serialize_flat_marks_quotes_and_asides() -> None:
     """Text stays plain; quotes get BLOCKQUOTE_MARKER; embeds get ASIDE_MARKER."""
     body = serialize_flat(
@@ -176,6 +188,7 @@ def run_tests() -> None:
     test_resolve_markers_drops_unknown_id()
     test_render_quote_is_verbatim()
     test_render_image_from_caption()
+    test_render_image_generic_alt_is_not_a_description()
     test_image_no_double_period()
     test_render_video_audio_code()
     test_render_footnote_and_card()
