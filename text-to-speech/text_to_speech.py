@@ -672,6 +672,7 @@ def finalize_episode(
         output_filename = f"{output_dir}/{name_without_date[: dash_index + 1]} {date_prefix} {name_without_date[dash_index + 1 :]}-{current_datetime}.mp3"
     else:
         output_filename = f"{output_dir}/{name_without_date}-{date_prefix}{current_datetime}.mp3"
+    output_filename = re.sub(r" {2,}", " ", output_filename)  # collapse gaps when date_prefix is empty
 
     logging.info("Exporting %s", output_filename)
     _ = audio.export(output_filename, format="mp3")
@@ -732,8 +733,14 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
     plan = article_multivoice_plan(content_text, rule.engine)
     clean_content = strip_markers(content_text)
     if plan is not None:
-        quote_count = sum(1 for _, speaker in plan if speaker != "NARRATOR")
-        logging.info("Routing %s to multi-voice article synthesis (%d quotes)", incoming_path.name, quote_count)
+        aside_count = sum(1 for _, speaker in plan if speaker == "ASIDE")
+        quote_count = sum(1 for _, speaker in plan if speaker not in {"NARRATOR", "ASIDE"})
+        logging.info(
+            "Routing %s to multi-voice synthesis (%d quotes, %d asides)",
+            incoming_path.name,
+            quote_count,
+            aside_count,
+        )
         narrator_voice, quote_pool, aside_voice = load_comment_voices()
         segments = render_utterances(plan, narrator_voice, quote_pool, aside_voice)
         if segments:

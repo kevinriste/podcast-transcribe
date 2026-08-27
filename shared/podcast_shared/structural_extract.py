@@ -103,6 +103,9 @@ def extract_tweet(el: Tag) -> Block:
 
 
 _DECORATIVE_CLASS_RE = re.compile(r"\b(?:avatar|icon|logo|badge|emoji)\b")
+# Images narrower than this (explicit px width) are platform icons/like-buttons/dividers
+# (e.g. Beehiiv's 68-75px social glyphs), not article content — skip them.
+_MIN_CONTENT_IMG_WIDTH = 100
 
 
 def _is_decorative(el: Tag) -> bool:
@@ -115,6 +118,9 @@ def _is_decorative(el: Tag) -> bool:
     alt = str(el.get("alt") or "").strip()
     if alt:
         return False
+    width = str(el.get("width") or "")
+    if width.isdigit() and int(width) < _MIN_CONTENT_IMG_WIDTH:  # icon/logo/emoji, not content
+        return True
     src = str(el.get("src") or "")
     return bool(_DECORATIVE_CLASS_RE.search(_classes(el))) or src.startswith("data:")
 

@@ -110,6 +110,16 @@ def test_serialize_flat_marks_quotes_and_asides() -> None:
         _fail(f"aside line wrong: {lines!r}")
 
 
+def test_image_no_double_period() -> None:
+    """A vision description ending in a period does not produce 'set..'."""
+    out = render_block_aside(Block(type="image", payload={"description": "A dog on a film set."}))
+    if out != "Image: A dog on a film set.":
+        _fail(f"double-period not fixed: {out!r}")
+    out2 = render_block_aside(Block(type="image", payload={"caption": "No terminal punctuation"}))
+    if out2 != "Image: No terminal punctuation.":
+        _fail(f"period not added: {out2!r}")
+
+
 def test_render_video_audio_code() -> None:
     """Video/audio/code render as concise announced asides."""
     v = render_block_aside(Block(type="video", payload={"title": "My Talk", "src": "u"}))
@@ -166,6 +176,7 @@ def run_tests() -> None:
     test_resolve_markers_drops_unknown_id()
     test_render_quote_is_verbatim()
     test_render_image_from_caption()
+    test_image_no_double_period()
     test_render_video_audio_code()
     test_render_footnote_and_card()
     test_serialize_flat_drop_types()

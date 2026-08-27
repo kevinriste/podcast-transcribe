@@ -320,6 +320,21 @@ def test_footnote_inline_at_reference() -> None:
         _fail(f"footnote content mismatched to reference: {blocks[1].payload} / {blocks[4].payload}")
 
 
+def test_small_images_are_decorative() -> None:
+    """Images with a small explicit pixel width (icons/logos) are skipped; large ones kept."""
+    html = (
+        '<div class="body markup">'
+        '<img src="https://x/logo.png" width="68">'
+        '<img src="https://x/photo.png" width="630">'
+        '<img src="https://x/full.png" width="100%">'
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    imgs = [b for b in blocks if b.type == "image"]
+    if len(imgs) != 2:  # the 68px icon is dropped; 630 and 100% kept
+        _fail(f"expected 2 images, got {len(imgs)}: {[b.payload.get('src') for b in imgs]}")
+
+
 def test_find_content_region_beehiiv() -> None:
     """Beehiiv's #content-blocks is selected, excluding the email footer chrome."""
     html = (
@@ -359,6 +374,7 @@ def run_tests() -> None:
     test_extract_blocks_video_and_code()
     test_extract_footnote_and_card()
     test_footnote_inline_at_reference()
+    test_small_images_are_decorative()
     test_find_content_region_beehiiv()
     logging.info("all structural-extractor tests passed")
 
