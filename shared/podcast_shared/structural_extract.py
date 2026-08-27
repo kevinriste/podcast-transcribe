@@ -30,9 +30,10 @@ class Block:
 def find_content_region(html: str) -> Tag:
     """Return the DOM subtree holding the article body.
 
-    Prefers Substack's ``div.body.markup``, then the first ``<article>``, then the
-    whole parsed document. Always returns a Tag (embeds survive — we never route the
-    body through trafilatura).
+    Prefers Substack's ``div.body.markup``, then Beehiiv's ``#content-blocks`` (both
+    exclude the email masthead/footer/social chrome by DOM position), then the first
+    ``<article>``, then the whole parsed document. Always returns a Tag (embeds survive —
+    we never route the body through trafilatura).
 
     Args:
         html: The source HTML.
@@ -45,6 +46,9 @@ def find_content_region(html: str) -> Tag:
     body = soup.select_one("div.body.markup")
     if body is not None:
         return body
+    beehiiv = soup.select_one("#content-blocks")
+    if beehiiv is not None:
+        return beehiiv
     article = soup.find("article")
     if isinstance(article, Tag):
         return article

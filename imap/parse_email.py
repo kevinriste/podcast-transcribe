@@ -471,6 +471,14 @@ def main() -> None:
                     custom_source: CustomSource | None = None
                     if has_beehiiv:
                         source_kind = "beehiiv"
+                        # Beehiiv's HTML wraps the article in #content-blocks (masthead and
+                        # footer sit outside it); extract structurally, falling back to plain.
+                        html_body = extract_body_from_html(msg)
+                        if html_body:
+                            email_text_raw = html_body
+                            extraction = "structured"
+                        else:
+                            logging.warning("No HTML body for %s email; using plain text", source_kind)
                     elif (
                         custom_source := match_custom_source(imap_config.sources, from_email, from_name_raw)
                     ) is not None:

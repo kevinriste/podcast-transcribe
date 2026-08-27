@@ -320,6 +320,26 @@ def test_footnote_inline_at_reference() -> None:
         _fail(f"footnote content mismatched to reference: {blocks[1].payload} / {blocks[4].payload}")
 
 
+def test_find_content_region_beehiiv() -> None:
+    """Beehiiv's #content-blocks is selected, excluding the email footer chrome."""
+    html = (
+        "<html><body>"
+        '<table><td class="preheader">May 27, 2026 | Read online</td></table>'
+        '<div id="content-blocks"><h2>Real Title</h2><p>Body paragraph.</p></div>'
+        '<table><td class="footer">Unsubscribe here © 2026 Garbage Media</td></table>'
+        "</body></html>"
+    )
+    region = find_content_region(html)
+    if region.get("id") != "content-blocks":
+        _fail(f"expected #content-blocks region, got {region.name} {region.get('id')}")
+    blocks = extract_blocks(region)
+    texts = " ".join(b.payload.get("text", "") for b in blocks)
+    if "Real Title" not in texts or "Body paragraph." not in texts:
+        _fail(f"body missing: {texts!r}")
+    if "Unsubscribe" in texts or "Read online" in texts:
+        _fail(f"footer/masthead leaked: {texts!r}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -339,6 +359,7 @@ def run_tests() -> None:
     test_extract_blocks_video_and_code()
     test_extract_footnote_and_card()
     test_footnote_inline_at_reference()
+    test_find_content_region_beehiiv()
     logging.info("all structural-extractor tests passed")
 
 
