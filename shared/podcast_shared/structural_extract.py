@@ -27,32 +27,43 @@ class Block:
     children: list[Block] = field(default_factory=list)
 
 
-def find_content_region(html: str) -> Tag:
-    """Return the DOM subtree holding the article body.
+def find_content_region_matched(html: str) -> tuple[Tag, bool]:
+    """Return the article-body subtree and whether a known container was matched.
 
     Prefers Substack's ``div.body.markup``, then Beehiiv's ``#content-blocks`` (both
     exclude the email masthead/footer/social chrome by DOM position), then the first
-    ``<article>``, then the whole parsed document. Always returns a Tag (embeds survive —
-    we never route the body through trafilatura).
+    ``<article>``. Falls back to the whole parsed document — signalled by ``False``, so
+    callers can decline to treat that (chrome-laden) extraction as structurally clean.
 
     Args:
         html: The source HTML.
 
     Returns:
-        The content-region tag.
+        ``(region, matched)`` — the content-region tag, and True when a recognized
+        container was found (False for the whole-document fallback).
 
     """
     soup = BeautifulSoup(html, "html.parser")
     body = soup.select_one("div.body.markup")
     if body is not None:
-        return body
+        return body, True
     beehiiv = soup.select_one("#content-blocks")
     if beehiiv is not None:
-        return beehiiv
+        return beehiiv, True
     article = soup.find("article")
     if isinstance(article, Tag):
-        return article
-    return soup
+        return article, True
+    return soup, False
+
+
+def find_content_region(html: str) -> Tag:
+    """Return the DOM subtree holding the article body (see :func:`find_content_region_matched`).
+
+    Returns:
+        The content-region tag (the whole document when no known container is found).
+
+    """
+    return find_content_region_matched(html)[0]
 
 
 _HANDLE_RE = re.compile(r"@\w+")

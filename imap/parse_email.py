@@ -25,7 +25,7 @@ from podcast_shared import (
     describe_image,
     enrich_images,
     extract_blocks,
-    find_content_region,
+    find_content_region_matched,
     generate_summary,
     send_gotify_notification,
     serialize_flat,
@@ -241,7 +241,7 @@ _BLOCK_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 _LIST_MARKER_RE = re.compile(r"^\s*[*•\-]\s+")
 
 
-def extract_body_from_html(msg: MailMessage) -> str | None:
+def extract_body_from_html(msg: MailMessage) -> tuple[str | None, bool]:
     """Extract flat marker body text from an email's HTML part.
 
     Runs the structural extractor over the article content region, so block quotes
@@ -252,17 +252,21 @@ def extract_body_from_html(msg: MailMessage) -> str | None:
     back to caption/alt.
 
     Returns:
-        The serialized body text, or None if there is no HTML or no extractable content.
+        ``(body, structural)`` — the serialized body text (or None when there is no HTML
+        or no extractable content), and whether a recognized content container was
+        matched. ``structural`` is False for the whole-document fallback (e.g. Bloomberg),
+        so intake can decline to mark it ``structured`` and keep the plain-text cleaning.
 
     """
     if not msg.html:
-        return None
-    blocks = extract_blocks(find_content_region(msg.html))
+        return None, False
+    region, structural = find_content_region_matched(msg.html)
+    blocks = extract_blocks(region)
     if os.environ.get("EMBED_VISION", "1") != "0":
         enrich_images(blocks, describe_image)
     drop_types = frozenset(t.strip().lower() for t in os.environ.get("EMBED_DROP_TYPES", "").split(",") if t.strip())
     body = serialize_flat(blocks, drop_types=drop_types)
-    return body or None
+    return (body or None), structural
 
 
 def extract_body_text(html: str | None) -> str | None:
@@ -473,10 +477,10 @@ def main() -> None:
                         source_kind = "beehiiv"
                         # Beehiiv's HTML wraps the article in #content-blocks (masthead and
                         # footer sit outside it); extract structurally, falling back to plain.
-                        html_body = extract_body_from_html(msg)
+                        html_body, structural = extract_body_from_html(msg)
                         if html_body:
                             email_text_raw = html_body
-                            extraction = "structured"
+                            extraction = "structured" if structural else "plaintext"
                         else:
                             logging.warning("No HTML body for %s email; using plain text", source_kind)
                     elif (
@@ -486,10 +490,12 @@ def main() -> None:
                         if custom_source.use_html_body:
                             # Some publishers fuse hyperlink anchors onto adjacent words in
                             # the plain-text part; extract from HTML, falling back to plain.
-                            html_body = extract_body_from_html(msg)
+                            # Sources without a recognized content container (e.g. Bloomberg)
+                            # extract from the whole document, so they stay plain-text-cleaned.
+                            html_body, structural = extract_body_from_html(msg)
                             if html_body:
                                 email_text_raw = html_body
-                                extraction = "structured"
+                                extraction = "structured" if structural else "plaintext"
                             else:
                                 logging.warning("No HTML body for %s email; using plain text", source_kind)
                     else:
@@ -497,10 +503,10 @@ def main() -> None:
                         # Substack's plain-text part is lossy (truncated) and flattens block
                         # quotes; extract from HTML to recover full content and mark quotes,
                         # falling back to plain text when there is no HTML part.
-                        html_body = extract_body_from_html(msg)
+                        html_body, structural = extract_body_from_html(msg)
                         if html_body:
                             email_text_raw = html_body
-                            extraction = "structured"
+                            extraction = "structured" if structural else "plaintext"
                         else:
                             logging.warning("No HTML body for %s email; using plain text", source_kind)
                     all_links = extract_links_from_email(msg)

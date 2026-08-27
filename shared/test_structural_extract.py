@@ -14,6 +14,7 @@ from podcast_shared.structural_extract import (
     extract_iframe,
     extract_tweet,
     find_content_region,
+    find_content_region_matched,
     iframe_kind,
     is_tweet,
     serialize_blocks,
@@ -335,6 +336,21 @@ def test_small_images_are_decorative() -> None:
         _fail(f"expected 2 images, got {len(imgs)}: {[b.payload.get('src') for b in imgs]}")
 
 
+def test_find_content_region_matched_signals_fallback() -> None:
+    """A recognized container reports matched=True; whole-doc fallback reports False."""
+    _, matched_sub = find_content_region_matched('<div class="body markup"><p>x</p></div>')
+    if not matched_sub:
+        _fail("substack container should report matched=True")
+    _, matched_bee = find_content_region_matched('<div id="content-blocks"><p>x</p></div>')
+    if not matched_bee:
+        _fail("beehiiv container should report matched=True")
+    region, matched_none = find_content_region_matched("<html><body><table><td>Bloomberg chrome</td></table></body></html>")
+    if matched_none:
+        _fail("whole-doc fallback should report matched=False")
+    if region.name != "[document]":
+        _fail(f"fallback should return the document, got {region.name}")
+
+
 def test_find_content_region_beehiiv() -> None:
     """Beehiiv's #content-blocks is selected, excluding the email footer chrome."""
     html = (
@@ -375,6 +391,7 @@ def run_tests() -> None:
     test_extract_footnote_and_card()
     test_footnote_inline_at_reference()
     test_small_images_are_decorative()
+    test_find_content_region_matched_signals_fallback()
     test_find_content_region_beehiiv()
     logging.info("all structural-extractor tests passed")
 

@@ -26,6 +26,7 @@ from podcast_shared.structural_extract import Block as Block
 from podcast_shared.structural_extract import block_from_dict as block_from_dict
 from podcast_shared.structural_extract import extract_blocks as extract_blocks
 from podcast_shared.structural_extract import find_content_region as find_content_region
+from podcast_shared.structural_extract import find_content_region_matched as find_content_region_matched
 from podcast_shared.structural_extract import serialize_blocks as serialize_blocks
 
 logger = logging.getLogger(__name__)
