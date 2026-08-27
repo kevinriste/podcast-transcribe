@@ -99,6 +99,46 @@ def test_extract_tweet_pulls_handle_and_clean_text() -> None:
             _fail(f"engagement junk {junk!r} not stripped: {text!r}")
 
 
+def test_extract_tweet_attaches_content_image() -> None:
+    """A tweet's media image becomes a nested image child (avatar skipped)."""
+    html = (
+        '<table class="twitter-embed tweet" data-component-name="TweetToDOMStatic"><tbody><tr><td>'
+        '<img class="avatar" alt="roon" src="https://pbs.twimg.com/profile_images/a.jpg"/>'
+        "<div>roon</div><div>@tszzl</div>"
+        "<div>look at this chart</div>"
+        '<img alt="A bar chart of GDP" width="600" src="https://pbs.twimg.com/media/xyz.jpg"/>'
+        "<div>8:59 PM · Jul 25, 2026 · 568K Views</div>"
+        "</td></tr></tbody></table>"
+    )
+    tag = BeautifulSoup(html, "html.parser").find("table")
+    if not isinstance(tag, Tag):
+        _fail("fixture table missing")
+    block = extract_tweet(tag)
+    if len(block.children) != 1:
+        _fail(f"expected 1 image child, got {[c.type for c in block.children]}")
+    child = block.children[0]
+    if child.type != "image" or child.payload.get("alt") != "A bar chart of GDP":
+        _fail(f"child wrong: {child!r}")
+    if child.payload.get("src") != "https://pbs.twimg.com/media/xyz.jpg":
+        _fail(f"child src wrong: {child.payload.get('src')!r}")
+
+
+def test_extract_tweet_avatar_only_has_no_children() -> None:
+    """A tweet with only an avatar image gets no image child."""
+    html = (
+        '<table class="twitter-embed tweet" data-component-name="TweetToDOMStatic"><tbody><tr><td>'
+        '<img class="avatar" alt="roon" src="https://pbs.twimg.com/profile_images/a.jpg"/>'
+        "<div>roon</div><div>@tszzl</div><div>no media here</div>"
+        "</td></tr></tbody></table>"
+    )
+    tag = BeautifulSoup(html, "html.parser").find("table")
+    if not isinstance(tag, Tag):
+        _fail("fixture table missing")
+    block = extract_tweet(tag)
+    if block.children:
+        _fail(f"avatar-only tweet should have no children, got {[c.type for c in block.children]}")
+
+
 def test_extract_blocks_preserves_tweet_position() -> None:
     """A tweet between two paragraphs yields text, tweet, text in order."""
     html = (
@@ -378,6 +418,8 @@ def run_tests() -> None:
     test_block_is_a_tree()
     test_is_tweet_detects_substack_embed()
     test_extract_tweet_pulls_handle_and_clean_text()
+    test_extract_tweet_attaches_content_image()
+    test_extract_tweet_avatar_only_has_no_children()
     test_extract_blocks_preserves_tweet_position()
     test_serialize_emits_markers_and_sidecar()
     test_serialize_recurses_children()

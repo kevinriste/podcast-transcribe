@@ -97,8 +97,13 @@ def is_tweet(el: Tag) -> bool:
 def extract_tweet(el: Tag) -> Block:
     """Extract a tweet embed into a Block, stripping engagement/time trailers.
 
+    The tweet's media image(s) become nested ``image`` children (so vision describes
+    them and the renderer appends them after the tweet text); avatars and other
+    decorative images are skipped via :func:`_is_decorative`.
+
     Returns:
-        A ``tweet`` Block with ``handle`` and cleaned ``text`` payload fields.
+        A ``tweet`` Block with ``handle`` and cleaned ``text`` payload fields, plus an
+        ``image`` child per content image the tweet carries.
 
     """
     pieces = [seg for seg in (s.strip() for s in el.stripped_strings) if seg]
@@ -110,7 +115,8 @@ def extract_tweet(el: Tag) -> Block:
     if handle:
         body = body.split(handle, 1)[1].strip()
     body = _ENGAGEMENT_RE.sub("", body).strip()
-    return Block(type="tweet", payload={"handle": handle, "text": body})
+    children = [extract_image(img) for img in el.find_all("img") if not _is_decorative(img)]
+    return Block(type="tweet", payload={"handle": handle, "text": body}, children=children)
 
 
 _DECORATIVE_CLASS_RE = re.compile(r"\b(?:avatar|icon|logo|badge|emoji)\b")
@@ -123,17 +129,18 @@ def _is_decorative(el: Tag) -> bool:
     """Whether an ``<img>`` is chrome (skip it).
 
     Returns:
-        True for empty-alt icon/avatar/logo/badge/emoji or ``data:`` images.
+        True for icon/avatar/logo/badge/emoji or ``data:`` images (by class/src,
+        regardless of alt — tweet avatars carry the author's name as alt), and for
+        empty-alt images with a small explicit pixel width.
 
     """
-    alt = str(el.get("alt") or "").strip()
-    if alt:
+    src = str(el.get("src") or "")
+    if _DECORATIVE_CLASS_RE.search(_classes(el)) or src.startswith("data:"):
+        return True
+    if str(el.get("alt") or "").strip():
         return False
     width = str(el.get("width") or "")
-    if width.isdigit() and int(width) < _MIN_CONTENT_IMG_WIDTH:  # icon/logo/emoji, not content
-        return True
-    src = str(el.get("src") or "")
-    return bool(_DECORATIVE_CLASS_RE.search(_classes(el))) or src.startswith("data:")
+    return width.isdigit() and int(width) < _MIN_CONTENT_IMG_WIDTH  # icon/logo/emoji, not content
 
 
 def extract_image(el: Tag) -> Block:
