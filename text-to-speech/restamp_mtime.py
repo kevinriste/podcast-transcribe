@@ -6,6 +6,12 @@ the order. This tool fixes already-published files without re-rendering: it read
 ``YYYYMMDD-HHMMSS`` stamp embedded in each filename (the original receipt/publish date,
 written by intake) and sets the file's mtime to it.
 
+"Highlights From The Comments" episodes are a special case: a backfill can stamp them
+far from the article they discuss. So comment episodes are not ordered by their own
+filename — instead each is paired to its article (by cleaned title) and stamped
+``COMMENT_OFFSET`` after it, so it always lands right after its friend. Comments with no
+matching article fall back to their filename stamp.
+
 Dry-run by default — pass --apply to write. After applying, let Dropcaster regenerate
 index.rss (it watches the audio dir).
 
@@ -20,13 +26,17 @@ import argparse
 import logging
 import pathlib
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from podcast_shared import set_file_pub_date
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 _STAMP_RE = re.compile(r"(\d{8})-(\d{6})")
+
+# A comment-highlights episode is stamped this long after its article so it sorts
+# immediately after it. Small enough to never leapfrog a closely following episode.
+COMMENT_OFFSET = timedelta(seconds=60)
 
 
 def stamp_from_name(stem: str) -> datetime | None:
@@ -46,6 +56,76 @@ def stamp_from_name(stem: str) -> datetime | None:
         return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
     except ValueError:
         return None
+
+
+def is_comment(stem: str) -> bool:
+    """Detect whether a published filename is a comment-highlights episode.
+
+    Returns:
+        True if the filename carries the ``COMMENTS-`` marker.
+
+    """
+    return "COMMENTS-" in stem
+
+
+def title_key(stem: str) -> str:
+    """Reduce a published filename to a title key that pairs a comment with its article.
+
+    Strips the trailing ``-YYYYMMDD`` render date, the leading ``<source>- <stamp>- ``
+    prefix, and a comment's ``COMMENTS-`` marker, leaving just the cleaned title that
+    both the article and its comment episode share.
+
+    Returns:
+        The shared title portion of the filename.
+
+    """
+    key = re.sub(r"-\d{8}$", "", stem)
+    key = re.sub(r"^.*?\d{8}-\d{6}-\s*", "", key)
+    key = re.sub(r"^COMMENTS-\s*", "", key)
+    return key.strip()
+
+
+def resolve_pub_dates(files: list[pathlib.Path]) -> dict[pathlib.Path, tuple[datetime, str]]:
+    """Decide each file's target mtime, pairing comment episodes to their articles.
+
+    Articles are stamped from their own filename date; each comment episode is stamped
+    COMMENT_OFFSET after its matched article, falling back to its own filename date when
+    no article matches. Files with no resolvable date are omitted from the result.
+
+    Returns:
+        A mapping of file path to (target datetime, human-readable source note).
+
+    """
+    articles = [f for f in files if not is_comment(f.stem)]
+    comments = [f for f in files if is_comment(f.stem)]
+
+    article_by_title: dict[str, pathlib.Path] = {}
+    ambiguous_titles: set[str] = set()
+    for article in articles:
+        key = title_key(article.stem)
+        if key in article_by_title:
+            ambiguous_titles.add(key)  # keep the first; only matters if a comment pairs to it
+            continue
+        article_by_title[key] = article
+
+    plan: dict[pathlib.Path, tuple[datetime, str]] = {}
+    for article in articles:
+        date = stamp_from_name(article.stem)
+        if date is not None:
+            plan[article] = (date, "filename")
+    for comment in comments:
+        key = title_key(comment.stem)
+        if key in ambiguous_titles:
+            logging.warning("comment %r matches multiple articles titled %r; pairing to the first", comment.name, key)
+        matched = article_by_title.get(key)
+        article_date = stamp_from_name(matched.stem) if matched is not None else None
+        if article_date is not None:
+            plan[comment] = (article_date + COMMENT_OFFSET, f"article+{int(COMMENT_OFFSET.total_seconds())}s")
+        else:
+            fallback = stamp_from_name(comment.stem)
+            if fallback is not None:
+                plan[comment] = (fallback, "filename (no article match)")
+    return plan
 
 
 def collect_mp3s(paths: list[str]) -> list[pathlib.Path]:
@@ -87,7 +167,6 @@ def main() -> None:
         logging.error("no mp3 files found in: %s", ", ".join(paths))
         return
 
-    explicit_date: datetime | None = None
     if explicit_iso is not None:
         if len(files) != 1:
             logging.error("--date requires exactly one mp3 file (got %d)", len(files))
@@ -97,15 +176,19 @@ def main() -> None:
         except ValueError:
             logging.exception("could not parse --date %r as ISO datetime", explicit_iso)
             return
+        plan = {files[0]: (explicit_date, "explicit --date")}
+    else:
+        plan = resolve_pub_dates(files)
 
     changed = 0
     for mp3 in files:
-        pub_date = explicit_date or stamp_from_name(mp3.stem)
-        if pub_date is None:
+        entry = plan.get(mp3)
+        if entry is None:
             logging.warning("no date stamp in filename, skipping: %s", mp3.name)
             continue
+        pub_date, note = entry
         verb = "setting" if apply else "would set"
-        logging.info("%s mtime %s -> %s", verb, pub_date.isoformat(), mp3.name)
+        logging.info("%s mtime %s [%s] -> %s", verb, pub_date.isoformat(), note, mp3.name)
         if apply:
             set_file_pub_date(str(mp3), pub_date)
         changed += 1
