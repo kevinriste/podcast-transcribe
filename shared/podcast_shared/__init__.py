@@ -3,6 +3,7 @@
 
 import logging
 import os
+import re
 from datetime import datetime
 
 import requests
@@ -193,3 +194,24 @@ def set_file_pub_date(path: str, pub_date: datetime) -> None:
     """
     ts = pub_date.timestamp()
     os.utime(path, (ts, ts))
+
+
+def pub_date_from_filename(stem: str) -> datetime | None:
+    """Parse a leading ``YYYYMMDD-HHMMSS`` filename prefix into a naive local datetime.
+
+    Every intake path (imap, rss, archive) names its output with this prefix, built
+    from the source's own date (email date, feed ``published``, post date). The prefix
+    survives the pipeline, so it is the original-receipt fallback for episode ordering
+    when no explicit ``META_PUB_DATE`` header is present.
+
+    Returns:
+        The parsed datetime, or None if the stem has no valid date prefix.
+
+    """
+    match = re.match(r"^(\d{8})-(\d{6})", stem)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
+    except ValueError:
+        return None
