@@ -9,11 +9,12 @@ COMMENT_BRIEFING_MODEL environment variable.
 import logging
 import os
 import pathlib
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import yaml
 from bs4 import BeautifulSoup, Tag
 from openai import OpenAI, OpenAIError
+from podcast_shared import COMMENT_OFFSET
 
 MIN_COMMENTS = 5
 MODEL = os.environ.get("COMMENT_BRIEFING_MODEL", "gpt-5-mini")
@@ -40,13 +41,13 @@ def load_source_config() -> tuple[str, str]:
 
 
 def article_pub_dates(now: datetime) -> tuple[datetime, datetime]:
-    """Return (article_pub_date, comment_pub_date) with the comment 60s later.
+    """Return (article_pub_date, comment_pub_date) with the comment COMMENT_OFFSET later.
 
     Returns:
         A tuple of the article and comment episode publication datetimes.
 
     """
-    return now, now + timedelta(seconds=60)
+    return now, now + COMMENT_OFFSET
 
 
 def comment_metadata_block(

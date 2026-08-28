@@ -25,64 +25,19 @@ Usage (from text-to-speech/):
 import argparse
 import logging
 import pathlib
-import re
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from podcast_shared import set_file_pub_date
+from podcast_shared import (
+    COMMENT_OFFSET,
+    set_file_pub_date,
+    stamp_from_name,
+    title_key,
+)
+from podcast_shared import (
+    is_comment_filename as is_comment,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-
-_STAMP_RE = re.compile(r"(\d{8})-(\d{6})")
-
-# A comment-highlights episode is stamped this long after its article so it sorts
-# immediately after it. Small enough to never leapfrog a closely following episode.
-COMMENT_OFFSET = timedelta(seconds=60)
-
-
-def stamp_from_name(stem: str) -> datetime | None:
-    """Extract the first embedded ``YYYYMMDD-HHMMSS`` stamp from a published filename.
-
-    Published names carry the stamp after the source prefix (e.g. ``Source- 20130502-120000- Title-...``),
-    so it is searched for anywhere, not anchored at the start.
-
-    Returns:
-        The parsed naive-local datetime, or None if no valid stamp is present.
-
-    """
-    match = _STAMP_RE.search(stem)
-    if not match:
-        return None
-    try:
-        return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
-    except ValueError:
-        return None
-
-
-def is_comment(stem: str) -> bool:
-    """Detect whether a published filename is a comment-highlights episode.
-
-    Returns:
-        True if the filename carries the ``COMMENTS-`` marker.
-
-    """
-    return "COMMENTS-" in stem
-
-
-def title_key(stem: str) -> str:
-    """Reduce a published filename to a title key that pairs a comment with its article.
-
-    Strips the trailing ``-YYYYMMDD`` render date, the leading ``<source>- <stamp>- ``
-    prefix, and a comment's ``COMMENTS-`` marker, leaving just the cleaned title that
-    both the article and its comment episode share.
-
-    Returns:
-        The shared title portion of the filename.
-
-    """
-    key = re.sub(r"-\d{8}$", "", stem)
-    key = re.sub(r"^.*?\d{8}-\d{6}-\s*", "", key)
-    key = re.sub(r"^COMMENTS-\s*", "", key)
-    return key.strip()
 
 
 def resolve_pub_dates(files: list[pathlib.Path]) -> dict[pathlib.Path, tuple[datetime, str]]:

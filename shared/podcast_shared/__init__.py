@@ -4,7 +4,7 @@
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from google import genai
@@ -215,3 +215,58 @@ def pub_date_from_filename(stem: str) -> datetime | None:
         return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
     except ValueError:
         return None
+
+
+# A "Highlights From The Comments" episode is placed this long after the article it
+# discusses so it sorts immediately after its friend. Small enough never to leapfrog a
+# closely following episode. Shared by every producer/re-orderer of comment episodes.
+COMMENT_OFFSET = timedelta(seconds=60)
+
+_PUBLISHED_STAMP_RE = re.compile(r"(\d{8})-(\d{6})")
+
+
+def stamp_from_name(stem: str) -> datetime | None:
+    """Extract the first embedded ``YYYYMMDD-HHMMSS`` stamp from a *published* filename.
+
+    Unlike ``pub_date_from_filename`` (anchored, for clean intake stems), published
+    names carry the stamp after the source prefix (e.g. ``Source- 20130502-120000- Title``),
+    so it is searched for anywhere.
+
+    Returns:
+        The parsed naive-local datetime, or None if no valid stamp is present.
+
+    """
+    match = _PUBLISHED_STAMP_RE.search(stem)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
+    except ValueError:
+        return None
+
+
+def is_comment_filename(stem: str) -> bool:
+    """Detect whether a published filename is a comment-highlights episode.
+
+    Returns:
+        True if the filename carries the ``COMMENTS-`` marker.
+
+    """
+    return "COMMENTS-" in stem
+
+
+def title_key(stem: str) -> str:
+    """Reduce a published filename to the title shared by an article and its comment episode.
+
+    Strips the trailing ``-YYYYMMDD`` render date, the leading ``<source>- <stamp>- ``
+    prefix, and a comment's ``COMMENTS-`` marker. Pairing a comment to its article keys
+    on this value.
+
+    Returns:
+        The shared title portion of the filename.
+
+    """
+    key = re.sub(r"-\d{8}$", "", stem)
+    key = re.sub(r"^.*?\d{8}-\d{6}-\s*", "", key)
+    key = re.sub(r"^COMMENTS-\s*", "", key)
+    return key.strip()
