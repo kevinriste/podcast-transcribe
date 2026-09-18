@@ -10,7 +10,15 @@ import logging
 import pathlib
 from datetime import datetime
 
-from restamp_mtime import COMMENT_OFFSET, is_comment, resolve_pub_dates, stamp_from_name, title_key
+from podcast_shared import (
+    COMMENT_OFFSET,
+    stamp_from_name,
+    title_key,
+)
+from podcast_shared import (
+    is_comment_filename as is_comment,
+)
+from restamp_mtime import resolve_pub_dates
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
