@@ -55,6 +55,29 @@ def test_byline_deduplication() -> None:
         _fail("falsely detected leading author in plain body")
 
 
+def test_period_runs_after_removals() -> None:
+    """Text removals with line-end anchors match because period append runs after removals."""
+    config: pt.PipelineConfig = {
+        "text_removals": [
+            {
+                "pattern": r"^Advertisement$",
+                "reason": "strip ads",
+                "flags": "multiline",
+            }
+        ]
+    }
+    raw = "Lead paragraph\n\nAdvertisement\n\nFollowup paragraph\n"
+    gc_stats: dict[str, dict[str, int | bool]] = {}
+    cleaned = pt.apply_general_cleaning(raw, {}, config, gc_stats)
+    removal_stats: dict[str, dict[str, int]] = {}
+    cleaned = pt.apply_text_removals(cleaned, config, removal_stats)
+    cleaned = pt.apply_end_of_line_punctuation(cleaned, {}, config, gc_stats)
+    if "Advertisement" in cleaned:
+        _fail(f"Advertisement was not removed: {cleaned!r}")
+    if "Lead paragraph." not in cleaned:
+        _fail(f"Period was not appended to lead paragraph: {cleaned!r}")
+
+
 def test_url_step_runs_in_both_profiles() -> None:
     """URL-to-context is non-destructive, so it stays enabled for structured intake too."""
     for extraction in ("structured", "plaintext"):
@@ -94,6 +117,7 @@ def run_tests() -> None:
     test_relocate_footnotes_as_aside()
     test_empty_brackets_and_dividers()
     test_byline_deduplication()
+    test_period_runs_after_removals()
     logging.info("cleaning tests passed")
 
 

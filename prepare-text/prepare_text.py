@@ -880,12 +880,34 @@ def apply_general_cleaning(
             "standalone_at_removal",
         )
 
-    # End-of-line punctuation (must be last)
-    if is_enabled("end_of_line_punctuation"):
-        result = re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", result)
-        stats["end_of_line_punctuation"] = {"applied": True}
-
     return result
+
+
+def apply_end_of_line_punctuation(
+    text: str,
+    metadata: dict[str, str],
+    config: PipelineConfig,
+    stats: dict[str, dict[str, int | bool]],
+) -> str:
+    """Append terminal punctuation to lines ending in a word character.
+
+    Runs after YAML text removals and replacements so anchored removal rules
+    (e.g. ^Advertisement$) match against un-punctuated line endings.
+    """
+    # TODO: Replace end-of-line period insertion with explicit SSML <break time="..."/> pause tags
+    # in text-to-speech to prevent punctuation conflicts with removal patterns.
+    gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
+    overrides: list[CleaningOverride] = gc_config.get("overrides") or []
+    for override in overrides:
+        match_val = override.get("match")
+        if isinstance(match_val, dict) and evaluate_match(match_val, metadata) and "end_of_line_punctuation" in override:  # pyright: ignore[reportUnknownArgumentType]
+            if not bool(override["end_of_line_punctuation"]):
+                return text
+    if "end_of_line_punctuation" in gc_config and not bool(gc_config["end_of_line_punctuation"]):
+        return text
+
+    stats["end_of_line_punctuation"] = {"applied": True}
+    return re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text)
 
 
 # ---------------------------------------------------------------------------
@@ -1192,6 +1214,10 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         replacement_stats: dict[str, dict[str, int]] = {}
         cleaned_text = apply_text_replacements(cleaned_text, config, replacement_stats)
         file_stats["text_replacements"] = replacement_stats
+
+        # End-of-line punctuation runs after removals/replacements so anchors match clean line endings
+        cleaned_text = apply_end_of_line_punctuation(cleaned_text, metadata, config, gc_stats)
+        file_stats["general_cleaning"] = gc_stats
 
     # Check empty (before adding header/footer, which would mask empty content)
     if not cleaned_text.strip():
