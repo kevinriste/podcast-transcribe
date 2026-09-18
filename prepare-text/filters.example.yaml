@@ -54,6 +54,12 @@ filters:
     action: skip
     reason: "Example Newsletter: skip off-topic episodes"
 
+  # Skip payment and invoice receipts (contains subscriber receipt chrome)
+  - match:
+      title: {contains: "receipt"}
+    action: skip
+    reason: "Subscription payment receipt"
+
 # ---------------------------------------------------------------------------
 # General cleaning — all default to true; only list overrides here
 # ---------------------------------------------------------------------------
