@@ -21,7 +21,12 @@ if TYPE_CHECKING:
 import markdown
 import yaml
 from bs4 import BeautifulSoup
-from podcast_shared import get_gemini_client, send_gotify_notification, split_metadata
+from podcast_shared import (
+    enable_post_in_podly,
+    get_gemini_client,
+    send_gotify_notification,
+    split_metadata,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -42,10 +47,10 @@ LLM_MODEL = "gemini-3.1-flash-lite"
 # ---------------------------------------------------------------------------
 
 VALID_MATCH_FIELDS = frozenset(
-    {"from", "title", "source_url", "source_kind", "source_name", "intake_type"},
+    {"from", "title", "source_url", "source_kind", "source_name", "intake_type", "guid"},
 )
 VALID_MATCH_OPERATORS = frozenset({"contains", "not_contains"})
-VALID_ACTIONS = frozenset({"skip", "notify"})
+VALID_ACTIONS = frozenset({"skip", "notify", "podly_process", "podly"})
 VALID_FLAGS = frozenset({"ignorecase", "multiline", "dotall"})
 CLEANING_STEPS = (
     "beehiiv_plaintext_conversion",
@@ -80,10 +85,20 @@ class NotifyConfig(TypedDict):
     title: str
 
 
+class PodlyConfig(TypedDict, total=False):
+    """Podly instance configuration overrides."""
+
+    url: str
+    username: str
+    password: str
+
+
 class _FilterRuleOptional(TypedDict, total=False):
-    action: str  # "skip" | "notify"
+    action: str  # "skip" | "notify" | "podly_process" | "podly"
     llm_check: str
     notify: NotifyConfig
+    podly: PodlyConfig
+    podly_process: bool
 
 
 class FilterRule(_FilterRuleOptional):
@@ -149,6 +164,7 @@ class PipelineConfig(TypedDict, total=False):
     general_cleaning: GeneralCleaningConfig
     text_removals: list[TextRemoval]
     text_replacements: list[TextReplacement]
+    podly: PodlyConfig
 
 
 class FileStats(TypedDict):
@@ -228,12 +244,19 @@ def validate_config(config: PipelineConfig) -> None:
 
     """
     valid_top_keys = frozenset(
-        {"filters", "general_cleaning", "text_removals", "text_replacements"},
+        {"filters", "general_cleaning", "text_removals", "text_replacements", "podly"},
     )
     for key in config:
         if key not in valid_top_keys:
             msg = f"Unknown top-level key: {key!r}"
             raise ValueError(msg)
+
+    valid_podly_keys = frozenset({"url", "username", "password"})
+    if "podly" in config:
+        for key in config["podly"]:
+            if key not in valid_podly_keys:
+                msg = f"podly: unknown key {key!r}"
+                raise ValueError(msg)
 
     # Validate filters
     for idx, filt in enumerate(config.get("filters") or []):
@@ -260,6 +283,11 @@ def validate_config(config: PipelineConfig) -> None:
             if "title" not in notify:
                 msg = f"{ctx}: notify block requires 'title'"
                 raise ValueError(msg)
+        if "podly" in filt:
+            for key in filt["podly"]:
+                if key not in valid_podly_keys:
+                    msg = f"{ctx}: podly unknown key {key!r}"
+                    raise ValueError(msg)
         if "llm_check" in filt and not filt["llm_check"]:
             msg = f"{ctx}: 'llm_check' must be a non-empty string"
             raise ValueError(msg)
@@ -275,14 +303,14 @@ def validate_config(config: PipelineConfig) -> None:
         if "match" not in override:
             msg = f"{octx}: 'match' is required"
             raise ValueError(msg)
-        match_val = override["match"]
-        if not isinstance(match_val, dict):
+        override_match: object = override["match"]
+        if not isinstance(override_match, dict):
             msg = f"{octx}: 'match' must be a dict"
             raise TypeError(msg)
-        validate_match_block(match_val, octx)  # pyright: ignore[reportUnknownArgumentType] — validated inside
-        for okey in override:
-            if okey != "match" and okey not in VALID_CLEANING_KEYS:
-                msg = f"{octx}: unknown key {okey!r}"
+        validate_match_block(override_match, octx)  # pyright: ignore[reportUnknownArgumentType] — validated inside
+        for key in override:
+            if key != "match" and key not in VALID_CLEANING_KEYS:
+                msg = f"{octx}: unknown cleaning step {key!r}"
                 raise ValueError(msg)
 
     # Validate text_removals
@@ -294,35 +322,35 @@ def validate_config(config: PipelineConfig) -> None:
         if "reason" not in removal:
             msg = f"{rctx}: 'reason' is required"
             raise ValueError(msg)
-        rflags = parse_flags(removal.get("flags"))
+        flags = parse_flags(removal.get("flags"))
         try:
-            _ = re.compile(removal["pattern"], rflags)
+            _ = re.compile(removal["pattern"], flags)
         except re.error as exc:
             msg = f"{rctx}: invalid regex: {exc}"
             raise ValueError(msg) from exc
 
     # Validate text_replacements
-    for idx, repl in enumerate(config.get("text_replacements") or []):
+    for idx, rep in enumerate(config.get("text_replacements") or []):
         pctx = f"text_replacements[{idx}]"
-        if "pattern" not in repl:
+        if "pattern" not in rep:
             msg = f"{pctx}: 'pattern' is required"
             raise ValueError(msg)
-        if "replacement" not in repl:
+        if "replacement" not in rep:
             msg = f"{pctx}: 'replacement' is required"
             raise ValueError(msg)
-        if "reason" not in repl:
+        if "reason" not in rep:
             msg = f"{pctx}: 'reason' is required"
             raise ValueError(msg)
-        pflags = parse_flags(repl.get("flags"))
+        flags = parse_flags(rep.get("flags"))
         try:
-            _ = re.compile(repl["pattern"], pflags)
+            _ = re.compile(rep["pattern"], flags)
         except re.error as exc:
             msg = f"{pctx}: invalid regex: {exc}"
             raise ValueError(msg) from exc
 
 
 def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
-    """Check for skip rules that shadow later rules with overlapping match criteria.
+    """Check for skip or podly rules that shadow later rules with overlapping match criteria.
 
     Returns:
         List of error messages (empty if no problems).
@@ -330,7 +358,8 @@ def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
     """
     errors: list[str] = []
     for i, rule_a in enumerate(filters):
-        if rule_a.get("action", "skip") != "skip":
+        action_a = rule_a.get("action", "skip")
+        if action_a not in {"skip", "podly_process", "podly"} and not rule_a.get("podly_process"):
             continue
         match_a = rule_a["match"]
         for j in range(i + 1, len(filters)):
@@ -340,7 +369,7 @@ def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
             # (meaning everything match_b matches, match_a also matches)
             if _match_is_subset(subset=match_b, superset=match_a):
                 errors.append(
-                    f"filters[{i}] (skip, reason: {rule_a['reason']!r}) shadows filters[{j}] (reason: {rule_b['reason']!r}) — the later rule will never fire. Reorder or adjust match criteria.",
+                    f"filters[{i}] ({action_a}, reason: {rule_a['reason']!r}) shadows filters[{j}] (reason: {rule_b['reason']!r}) — the later rule will never fire. Reorder or adjust match criteria.",
                 )
     return errors
 
@@ -1046,6 +1075,27 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
                 priority=notify_config["priority"],
             )
             continue
+
+        if action in {"podly_process", "podly"} or filt.get("podly_process"):
+            rule_podly: PodlyConfig = filt.get("podly") or {}
+            global_podly: PodlyConfig = config.get("podly") or {}
+            podly_url: str | None = rule_podly.get("url") or global_podly.get("url")
+            podly_user: str | None = rule_podly.get("username") or global_podly.get("username")
+            podly_pwd: str | None = rule_podly.get("password") or global_podly.get("password")
+
+            logging.info("Enabling episode for processing in Podly directly: %s", filename)
+            _ = enable_post_in_podly(
+                guid=metadata.get("guid"),
+                download_url=metadata.get("source_url"),
+                title=metadata.get("title"),
+                feed_name=metadata.get("from"),
+                podly_url=podly_url,
+                username=podly_user,
+                password=podly_pwd,
+            )
+            skip_file = True
+            filter_reason = reason
+            break
 
         # Remaining case is skip (notify already handled above)
         skip_file = True

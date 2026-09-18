@@ -19,6 +19,8 @@ from podcast_shared.describe import describe_image as describe_image
 from podcast_shared.describe import enrich_images as enrich_images
 from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
+from podcast_shared.podly import enable_post_in_podly as enable_post_in_podly
+from podcast_shared.podly import get_podly_config as get_podly_config
 from podcast_shared.structural_extract import ASIDE_MARKER as ASIDE_MARKER
 from podcast_shared.structural_extract import BLOCKQUOTE_MARKER as BLOCKQUOTE_MARKER
 from podcast_shared.structural_extract import EMBED_MARKER_PREFIX as EMBED_MARKER_PREFIX
