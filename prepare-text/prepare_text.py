@@ -805,16 +805,27 @@ def apply_general_cleaning(
             "legal_bracket_unwrap",
         )
 
-    # Triple dash removal
+    # Triple dash / divider removal (ASCII, unicode em/en-dashes, asterisks, and spaced variants)
     if is_enabled("triple_dash_removal"):
-        result = count_and_sub(r"---+", "", result, "triple_dash_removal")
+        result = count_and_sub(
+            r"(?m)^[ \t]*[-—–*]{3,}[ \t]*$|---+|[—–*]{3,}",
+            "",
+            result,
+            "triple_dash_removal",
+        )
+        result = count_and_sub(
+            r"(?m)^[ \t]*([-—–*][ \t]+){2,}[-—–*][ \t]*$",
+            "",
+            result,
+            "triple_dash_removal",
+        )
 
-    # Empty bracket removal
+    # Empty bracket removal (including interior whitespace)
     if is_enabled("empty_bracket_removal"):
         before_brackets = result
-        result = re.sub(r"\[\]", "", result)
-        result = re.sub(r"\(\)", "", result)
-        result = result.replace("<>", "")
+        result = re.sub(r"\[\s*\]", "", result)
+        result = re.sub(r"\(\s*\)", "", result)
+        result = re.sub(r"<\s*>", "", result)
         bracket_diff = len(before_brackets) - len(result)
         if bracket_diff > 0:
             stats["empty_bracket_removal"] = {"chars_removed": bracket_diff}

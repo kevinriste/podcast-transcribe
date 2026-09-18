@@ -60,6 +60,16 @@ def test_relocate_footnotes_as_aside() -> None:
         _fail(f"aside marker not found in output: {out!r}")
 
 
+def test_empty_brackets_and_dividers() -> None:
+    """Empty brackets with whitespace and non-ASCII/spaced dividers are removed."""
+    sample = "Start [ ] with (   ) and <  > brackets.\n\n———\n\nMiddle text.\n\n* * *\n\nEnd."
+    stats: dict[str, dict[str, int | bool]] = {}
+    out = pt.apply_general_cleaning(sample, {}, {}, stats)
+    for token in ("[ ]", "(   )", "<  >", "———", "* * *"):
+        if token in out:
+            _fail(f"token {token!r} was not removed: {out!r}")
+
+
 def run_tests() -> None:
     """Run all cleaning tests."""
     logging.basicConfig(level=logging.INFO)
@@ -67,6 +77,7 @@ def run_tests() -> None:
     test_structured_profile_skips_repair_steps()
     test_url_step_runs_in_both_profiles()
     test_relocate_footnotes_as_aside()
+    test_empty_brackets_and_dividers()
     logging.info("cleaning tests passed")
 
 
