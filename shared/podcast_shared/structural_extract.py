@@ -129,25 +129,31 @@ _MAX_DECORATIVE_PCT_WIDTH = 25
 _PCT_WIDTH_RE = re.compile(r"(\d+)%")
 
 
+_WIDTH_DIGITS_RE = re.compile(r"^\s*(\d+)")
+
+
 def _is_decorative(el: Tag) -> bool:
     """Whether an ``<img>`` is chrome (skip it).
 
     Returns:
         True for icon/avatar/logo/badge/emoji or ``data:`` images (by class/src,
         regardless of alt — tweet avatars carry the author's name as alt), and for
-        empty-alt images sized to a small explicit width (px < 100, or a small % of column).
+        images sized to a small explicit width (px < 100, or a small % of column).
 
     """
     src = str(el.get("src") or "")
     if _DECORATIVE_CLASS_RE.search(_classes(el)) or src.startswith("data:"):
         return True
+    width = str(el.get("width") or "").strip()
+    pct = _PCT_WIDTH_RE.fullmatch(width)  # a small fraction of the column is an inline glyph
+    if pct is not None:
+        return int(pct.group(1)) <= _MAX_DECORATIVE_PCT_WIDTH
+    width_match = _WIDTH_DIGITS_RE.match(width)
+    if width_match is not None:
+        return int(width_match.group(1)) < _MIN_CONTENT_IMG_WIDTH  # icon/logo/emoji, not content
     if str(el.get("alt") or "").strip():
         return False
-    width = str(el.get("width") or "").strip()
-    if width.isdigit():
-        return int(width) < _MIN_CONTENT_IMG_WIDTH  # icon/logo/emoji, not content
-    pct = _PCT_WIDTH_RE.fullmatch(width)  # a small fraction of the column is an inline glyph
-    return pct is not None and int(pct.group(1)) <= _MAX_DECORATIVE_PCT_WIDTH
+    return False
 
 
 def extract_image(el: Tag) -> Block:

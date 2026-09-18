@@ -355,13 +355,14 @@ def test_small_images_are_decorative() -> None:
     html = (
         '<div class="body markup">'
         '<img src="https://x/logo.png" width="68">'
+        '<img src="https://x/fb.png" width="20 !important" alt="Facebook">'
         '<img src="https://x/photo.png" width="630">'
         '<img src="https://x/full.png" width="100%">'
         "</div>"
     )
     blocks = extract_blocks(find_content_region(html))
     imgs = [b for b in blocks if b.type == "image"]
-    if len(imgs) != 2:  # the 68px icon is dropped; 630 and 100% kept
+    if len(imgs) != 2:  # the 68px and 20px icons are dropped; 630 and 100% kept
         _fail(f"expected 2 images, got {len(imgs)}: {[b.payload.get('src') for b in imgs]}")
 
 
