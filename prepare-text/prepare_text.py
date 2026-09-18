@@ -689,12 +689,9 @@ STRUCTURED_ONLY_SKIP = frozenset({
     "footnote_relocation",
     "roman_numeral_normalization",
     "legal_bracket_unwrap",
-    "triple_dash_removal",
-    "empty_bracket_removal",
     "unsubscribe_removal",
     "view_online_removal",
     "substack_refs_removal",
-    "substack_boilerplate_removal",
     "standalone_at_removal",
 })
 
@@ -1003,6 +1000,28 @@ def write_metadata_and_content(
     )
 
 
+def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
+    """Check if the body text already begins with the author byline or headline.
+
+    Prevents double-byline at the start of articles (e.g. RSS feeds where the extracted
+    body already starts with author/headline).
+    """
+    if not body.strip():
+        return False
+    lines = [re.sub(r"^[^\w]+|[^\w]+$", "", ln.strip().lower()) for ln in body.splitlines() if ln.strip()][:3]
+    norm_from = re.sub(r"^[^\w]+|[^\w]+$", "", from_name.lower())
+    norm_title = re.sub(r"^[^\w]+|[^\w]+$", "", title.lower())
+
+    for line in lines:
+        if not line or len(line) < 4:
+            continue
+        if norm_from and (line == norm_from or line in norm_from or norm_from in line):
+            return True
+        if norm_title and (line == norm_title or line in norm_title or norm_title in line):
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Main processing
 # ---------------------------------------------------------------------------
@@ -1206,7 +1225,7 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         title = metadata.get("title", "").strip()
         header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
         footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
-        if header:
+        if header and not body_leads_with_byline(cleaned_text, from_name, title):
             cleaned_text = header + "\n" + cleaned_text
         if from_name or title:
             cleaned_text = cleaned_text.rstrip() + footer
