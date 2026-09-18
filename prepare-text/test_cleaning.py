@@ -28,7 +28,9 @@ def test_structured_profile_skips_repair_steps() -> None:
     """Structured intake skips plain-text repair steps like @ removal, but runs Substack boilerplate removal."""
     sample = "Body.\n\nShare\n\n@\n\nMore."
     struct_stats: dict[str, dict[str, int | bool]] = {}
-    struct_out = pt.apply_general_cleaning(sample, {"source_kind": "substack", "extraction": "structured"}, {}, struct_stats)
+    struct_out = pt.apply_general_cleaning(
+        sample, {"source_kind": "substack", "extraction": "structured"}, {}, struct_stats
+    )
     if "standalone_at_removal" in struct_stats:
         _fail(f"structured should skip standalone_at_removal: {list(struct_stats)}")
     if "substack_boilerplate_removal" not in struct_stats:

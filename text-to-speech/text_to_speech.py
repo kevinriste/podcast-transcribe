@@ -76,14 +76,16 @@ GEMINI_TTS_MODELS = {
 }
 DEFAULT_GEMINI_VOICE = "Sulafat"
 
-BATCH_JOB_RUNNING_STATES = frozenset({
-    genai_types.JobState.JOB_STATE_UNSPECIFIED,
-    genai_types.JobState.JOB_STATE_QUEUED,
-    genai_types.JobState.JOB_STATE_PENDING,
-    genai_types.JobState.JOB_STATE_RUNNING,
-    genai_types.JobState.JOB_STATE_PAUSED,
-    genai_types.JobState.JOB_STATE_UPDATING,
-})
+BATCH_JOB_RUNNING_STATES = frozenset(
+    {
+        genai_types.JobState.JOB_STATE_UNSPECIFIED,
+        genai_types.JobState.JOB_STATE_QUEUED,
+        genai_types.JobState.JOB_STATE_PENDING,
+        genai_types.JobState.JOB_STATE_RUNNING,
+        genai_types.JobState.JOB_STATE_PAUSED,
+        genai_types.JobState.JOB_STATE_UPDATING,
+    }
+)
 
 
 INTAKE_TYPE_LABELS = {

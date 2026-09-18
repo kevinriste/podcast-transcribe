@@ -682,18 +682,20 @@ def normalize_roman_numerals(text: str) -> tuple[str, int]:
 # the structural HTML extractor (which excludes boilerplate by DOM position and needs no
 # wrap/markdown/footnote repair). Whitespace, end-of-line pauses, and URL-to-context stay
 # on for every profile because they are non-destructive.
-STRUCTURED_ONLY_SKIP = frozenset({
-    "beehiiv_plaintext_conversion",
-    "beehiiv_emphasis_removal",
-    "unwrap_hard_wraps",
-    "footnote_relocation",
-    "roman_numeral_normalization",
-    "legal_bracket_unwrap",
-    "unsubscribe_removal",
-    "view_online_removal",
-    "substack_refs_removal",
-    "standalone_at_removal",
-})
+STRUCTURED_ONLY_SKIP = frozenset(
+    {
+        "beehiiv_plaintext_conversion",
+        "beehiiv_emphasis_removal",
+        "unwrap_hard_wraps",
+        "footnote_relocation",
+        "roman_numeral_normalization",
+        "legal_bracket_unwrap",
+        "unsubscribe_removal",
+        "view_online_removal",
+        "substack_refs_removal",
+        "standalone_at_removal",
+    }
+)
 
 _URL_RE = re.compile(r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b[-a-zA-Z0-9@:%_\+.~#?&//=]*")
 
@@ -805,13 +807,13 @@ def apply_general_cleaning(
     # Triple dash / divider removal (ASCII, unicode em/en-dashes, asterisks, and spaced variants)
     if is_enabled("triple_dash_removal"):
         result = count_and_sub(
-            r"(?m)^[ \t]*[-—–*]{3,}[ \t]*$|---+|[—–*]{3,}",
+            r"(?m)^[ \t]*[-*\u2014\u2013]{3,}[ \t]*$|---+|[\u2014\u2013*]{3,}",
             "",
             result,
             "triple_dash_removal",
         )
         result = count_and_sub(
-            r"(?m)^[ \t]*([-—–*][ \t]+){2,}[-—–*][ \t]*$",
+            r"(?m)^[ \t]*([-*\u2014\u2013][ \t]+){2,}[-*\u2014\u2013][ \t]*$",
             "",
             result,
             "triple_dash_removal",
@@ -893,16 +895,23 @@ def apply_end_of_line_punctuation(
 
     Runs after YAML text removals and replacements so anchored removal rules
     (e.g. ^Advertisement$) match against un-punctuated line endings.
+
+    Returns:
+        The text with missing line-ending periods appended.
+
     """
-    # TODO: Replace end-of-line period insertion with explicit SSML <break time="..."/> pause tags
-    # in text-to-speech to prevent punctuation conflicts with removal patterns.
+    # Future architecture item: Replace end-of-line period insertion with explicit SSML <break> tags (see PUNCHLIST.md)
     gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
     overrides: list[CleaningOverride] = gc_config.get("overrides") or []
     for override in overrides:
         match_val = override.get("match")
-        if isinstance(match_val, dict) and evaluate_match(match_val, metadata) and "end_of_line_punctuation" in override:  # pyright: ignore[reportUnknownArgumentType]
-            if not bool(override["end_of_line_punctuation"]):
-                return text
+        if (
+            isinstance(match_val, dict)
+            and evaluate_match(match_val, metadata)  # pyright: ignore[reportUnknownArgumentType]
+            and "end_of_line_punctuation" in override
+            and not bool(override["end_of_line_punctuation"])
+        ):
+            return text
     if "end_of_line_punctuation" in gc_config and not bool(gc_config["end_of_line_punctuation"]):
         return text
 
@@ -1027,6 +1036,10 @@ def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
 
     Prevents double-byline at the start of articles (e.g. RSS feeds where the extracted
     body already starts with author/headline).
+
+    Returns:
+        True if the leading lines match the author or headline; False otherwise.
+
     """
     if not body.strip():
         return False

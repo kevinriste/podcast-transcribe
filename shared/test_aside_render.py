@@ -119,7 +119,7 @@ def test_render_image_aside_drops_chrome_descriptions() -> None:
     ]
     for desc in chrome_descriptions:
         out = render_block_aside(Block(type="image", payload={"description": desc}))
-        if out != "":
+        if out:
             _fail(f"chrome description {desc!r} should render empty, got {out!r}")
 
 

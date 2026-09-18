@@ -40,7 +40,9 @@ def _render_own(block: Block) -> str:
             return f"The author shares a tweet from {handle}: {text}."
         return f"The author shares a tweet: {text}."
     if block.type == "image":
-        desc = (block.payload.get("description") or block.payload.get("caption") or block.payload.get("alt") or "").strip()
+        desc = (
+            block.payload.get("description") or block.payload.get("caption") or block.payload.get("alt") or ""
+        ).strip()
         # Substack uses a generic alt="Image"; on vision failure that would render as
         # "Image: Image." — treat such placeholder alts as no description.
         if not desc or desc.lower() in _GENERIC_IMAGE_ALTS:
