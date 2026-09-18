@@ -1031,11 +1031,22 @@ def write_metadata_and_content(
     )
 
 
+def _norm_header(text: str) -> str:
+    """Normalize a header or byline string for exact structural comparison.
+
+    Returns:
+        The normalized lowercase header string with punctuation stripped.
+
+    """
+    cleaned = re.sub(r"['\u2019]", "", text)
+    return " ".join(re.sub(r"[^\w\s]+", " ", cleaned).split()).lower()
+
+
 def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
     """Check if the body text already begins with the author byline or headline.
 
     Prevents double-byline at the start of articles (e.g. RSS feeds where the extracted
-    body already starts with author/headline).
+    body already starts with author/headline, or blog archives where line 0 is the post title).
 
     Returns:
         True if the leading lines match the author or headline; False otherwise.
@@ -1043,18 +1054,25 @@ def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
     """
     if not body.strip():
         return False
-    lines = [re.sub(r"^[^\w]+|[^\w]+$", "", ln.strip().lower()) for ln in body.splitlines() if ln.strip()][:3]
-    norm_from = re.sub(r"^[^\w]+|[^\w]+$", "", from_name.lower())
-    norm_title = re.sub(r"^[^\w]+|[^\w]+$", "", title.lower())
+    lines = [_norm_header(ln) for ln in body.splitlines() if ln.strip()][:2]
+    if not lines:
+        return False
 
-    for line in lines:
-        if not line or len(line) < 4:
-            continue
-        if norm_from and (line == norm_from or line in norm_from or norm_from in line):
-            return True
-        if norm_title and (line == norm_title or line in norm_title or norm_title in line):
-            return True
-    return False
+    norm_from = _norm_header(from_name) if from_name else ""
+    norm_title = _norm_header(title) if title else ""
+
+    l0 = lines[0]
+    # Check if the very first line is exactly the title or author
+    if norm_title and l0 in {norm_title, f"{norm_title} by {norm_from}"}:
+        return True
+    if norm_from and l0 in {norm_from, f"by {norm_from}"}:
+        return True
+    if norm_from and norm_title and l0 == f"{norm_from} {norm_title}":
+        return True
+    # Check if line 0 is author and line 1 is title
+    return bool(
+        len(lines) > 1 and norm_from and norm_title and l0 in {norm_from, f"by {norm_from}"} and lines[1] == norm_title
+    )
 
 
 # ---------------------------------------------------------------------------
