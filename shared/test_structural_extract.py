@@ -7,7 +7,9 @@ from typing import NoReturn
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 
+from podcast_shared.aside_render import serialize_flat
 from podcast_shared.structural_extract import (
+    BLOCKQUOTE_MARKER,
     Block,
     block_from_dict,
     extract_blocks,
@@ -51,10 +53,7 @@ def _tweet_tag() -> Tag:
 
 def test_region_prefers_substack_body() -> None:
     """Substack's div.body.markup wins over the surrounding chrome."""
-    html = (
-        '<html><body><div class="header">nav</div>'
-        '<div class="body markup"><p>real content</p></div></body></html>'
-    )
+    html = '<html><body><div class="header">nav</div><div class="body markup"><p>real content</p></div></body></html>'
     region = find_content_region(html)
     text = region.get_text(" ", strip=True)
     if "real content" not in text or "nav" in text:
@@ -141,11 +140,7 @@ def test_extract_tweet_avatar_only_has_no_children() -> None:
 
 def test_extract_blocks_preserves_tweet_position() -> None:
     """A tweet between two paragraphs yields text, tweet, text in order."""
-    html = (
-        '<div class="body markup"><p>He seems spooked:</p>'
-        + _TWEET_HTML
-        + "<p>leading to a conversation.</p></div>"
-    )
+    html = '<div class="body markup"><p>He seems spooked:</p>' + _TWEET_HTML + "<p>leading to a conversation.</p></div>"
     blocks = extract_blocks(find_content_region(html))
     kinds = [b.type for b in blocks]
     if kinds != ["text", "tweet", "text"]:
@@ -213,13 +208,7 @@ def test_block_from_dict_roundtrips() -> None:
 
 def test_extract_blocks_marks_quotes() -> None:
     """A blockquote paragraph becomes a quote block; normal paragraphs stay text."""
-    html = (
-        '<div class="body markup">'
-        "<p>Normal.</p>"
-        "<blockquote><p>Quoted line.</p></blockquote>"
-        "<p>After.</p>"
-        "</div>"
-    )
+    html = '<div class="body markup"><p>Normal.</p><blockquote><p>Quoted line.</p></blockquote><p>After.</p></div>'
     blocks = extract_blocks(find_content_region(html))
     kinds = [(b.type, b.payload.get("text", "")) for b in blocks]
     if ("quote", "Quoted line.") not in kinds:
@@ -401,7 +390,9 @@ def test_find_content_region_matched_signals_fallback() -> None:
     _, matched_bee = find_content_region_matched('<div id="content-blocks"><p>x</p></div>')
     if not matched_bee:
         _fail("beehiiv container should report matched=True")
-    region, matched_none = find_content_region_matched("<html><body><table><td>Bloomberg chrome</td></table></body></html>")
+    region, matched_none = find_content_region_matched(
+        "<html><body><table><td>Bloomberg chrome</td></table></body></html>"
+    )
     if matched_none:
         _fail("whole-doc fallback should report matched=False")
     if region.name != "[document]":
@@ -428,6 +419,155 @@ def test_find_content_region_beehiiv() -> None:
         _fail(f"footer/masthead leaked: {texts!r}")
 
 
+def test_extract_blocks_marks_mailbag_question_single_para() -> None:
+    """A bold paragraph starting with a Substack comment link becomes a quote block."""
+    html = (
+        '<div class="body markup">'
+        '<p><strong><a href="https://www.slowboring.com/p/giving/comment/103630656">stieltjestransform:</a> '
+        "What should a moderate Democratic politician do in this environment?</strong></p>"
+        "<p>I think the answer is straightforward.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [(b.type, b.payload.get("text", "")) for b in blocks]
+    if len(kinds) != 2:
+        _fail(f"expected 2 blocks, got {len(kinds)}: {kinds}")
+    if kinds[0][0] != "quote" or "stieltjestransform:" not in kinds[0][1]:
+        _fail(f"first block should be quote, got: {kinds[0]}")
+    if kinds[1][0] != "text" or "straightforward" not in kinds[1][1]:
+        _fail(f"second block should be text, got: {kinds[1]}")
+
+
+def test_extract_blocks_marks_mailbag_question_multi_para() -> None:
+    """Multi-paragraph reader questions are both marked as quotes when continuing."""
+    html = (
+        '<div class="body markup">'
+        '<p><strong><a href="https://www.slowboring.com/p/post/comment/123">Aaron:</a> '
+        "If California went 100% full statewide YIMBY tomorrow, what would happen?</strong></p>"
+        "<p><strong>Or if they would never drop that low, what do you think is a reasonable level?</strong></p>"
+        "<p>The real issue with California zoning is local control.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [(b.type, b.payload.get("text", "")) for b in blocks]
+    if len(kinds) != 3:
+        _fail(f"expected 3 blocks, got {len(kinds)}: {kinds}")
+    if kinds[0][0] != "quote" or kinds[1][0] != "quote":
+        _fail(f"both question paragraphs should be quote, got: {kinds[0]}, {kinds[1]}")
+    if kinds[2][0] != "text":
+        _fail(f"third block should be text, got: {kinds[2]}")
+
+
+def test_extract_blocks_marks_mailbag_question_numbered_list() -> None:
+    """Multi-paragraph reader question with numbered list continuations are all marked as quotes."""
+    html = (
+        '<div class="body markup">'
+        '<p><strong><a href="https://www.slowboring.com/p/post/comment/123">Wandering Lama:</a> '
+        "A couple of weeks ago you mentioned that if people wanted more CEOs to go to jail in America...</strong></p>"
+        "<p><strong>1. Do you think it would be socially valuable for more C-level executives to go to jail?</strong></p>"
+        "<p><strong>2. What reforms in particular would you like to see?</strong></p>"
+        "<p>Let us look at corporate governance reforms.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [b.type for b in blocks]
+    if kinds != ["quote", "quote", "quote", "text"]:
+        _fail(f"expected ['quote', 'quote', 'quote', 'text'], got {kinds}")
+
+
+def test_extract_blocks_does_not_steal_bold_author_reply() -> None:
+    """A bold short author reply following a question is not stolen as a question continuation."""
+    html = (
+        '<div class="body markup">'
+        '<p><strong><a href="https://www.slowboring.com/p/post/comment/123">Max Haas:</a> '
+        "Can we get someone like MGP into leadership?</strong></p>"
+        "<p><strong>This is what I'm praying for, at least.</strong></p>"
+        "<p>More seriously, the bench is thin.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [b.type for b in blocks]
+    if kinds != ["quote", "text", "text"]:
+        _fail(f"expected ['quote', 'text', 'text'], got {kinds}")
+
+
+def test_extract_blocks_marks_name_attribution_without_comment_link() -> None:
+    """A bold paragraph starting with a name attribution prefix is marked as a quote."""
+    html = (
+        '<div class="body markup">'
+        "<p><strong>Alice: What should the Federal Reserve do about interest rates next month?</strong></p>"
+        "<p>The Fed is in a difficult position.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    kinds = [(b.type, b.payload.get("text", "")) for b in blocks]
+    if kinds[0][0] != "quote":
+        _fail(f"name-attributed question should be quote, got: {kinds[0]}")
+    if kinds[1][0] != "text":
+        _fail(f"response should be text, got: {kinds[1]}")
+
+
+def test_extract_blocks_ignores_bold_headings() -> None:
+    """Common bold section headings and labels are not misclassified as reader questions."""
+    headings = [
+        "Part One: A Path Towards Forecasting",
+        "Part 2: Why Housing Matters",
+        "Note: This article has been updated.",
+        "Update: The bill passed yesterday.",
+        "Disclaimer: I own shares in Acme Corp.",
+        "Case in Point: How the market reacted",
+        "Step 3: Implementation details",
+    ]
+    for h in headings:
+        html = f'<div class="body markup"><p><strong>{h}</strong></p><p>Body text here.</p></div>'
+        blocks = extract_blocks(find_content_region(html))
+        if blocks[0].type != "text":
+            _fail(f"heading {h!r} was misclassified as quote: {blocks[0]}")
+
+
+def test_extract_blocks_ignores_unbold_comment_link() -> None:
+    """An inline comment link in normal prose is not classified as a quote."""
+    html = (
+        '<div class="body markup">'
+        '<p>A reader pointed out <a href="https://example.com/p/foo/comment/123">in this comment</a> that '
+        "inflation is cooling rapidly.</p></div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    if blocks[0].type != "text":
+        _fail(f"regular prose with comment link should be text, got {blocks[0].type}")
+
+
+def test_extract_blocks_ignores_citation_link_at_end() -> None:
+    """A bold paragraph with a comment link at the end (not an attribution lead) stays text."""
+    html = (
+        '<div class="body markup">'
+        "<p><strong>For more details on this specific argument, see "
+        '<a href="https://example.com/p/foo/comment/123">this commenter\'s note</a>.</strong></p></div>'
+    )
+    blocks = extract_blocks(find_content_region(html))
+    if blocks[0].type != "text":
+        _fail(f"bold paragraph with citation link at end should be text, got {blocks[0].type}")
+
+
+def test_extract_blocks_and_serialize_flat_mailbag() -> None:
+    """Mailbag reader questions serialize with BLOCKQUOTE_MARKER for downstream multi-voice TTS."""
+    html = (
+        '<div class="body markup">'
+        '<p><strong><a href="https://www.slowboring.com/p/giving/comment/103630656">stieltjestransform:</a> '
+        "What should a moderate Democratic politician do in this environment?</strong></p>"
+        "<p>I think the answer is straightforward.</p>"
+        "</div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    flat = serialize_flat(blocks)
+    expected = [
+        f"{BLOCKQUOTE_MARKER}stieltjestransform: What should a moderate Democratic politician do in this environment?",
+        "I think the answer is straightforward.",
+    ]
+    if flat.split("\n\n") != expected:
+        _fail(f"serialized mailbag text mismatch: {flat!r}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -442,6 +582,15 @@ def run_tests() -> None:
     test_serialize_recurses_children()
     test_block_from_dict_roundtrips()
     test_extract_blocks_marks_quotes()
+    test_extract_blocks_marks_mailbag_question_single_para()
+    test_extract_blocks_marks_mailbag_question_multi_para()
+    test_extract_blocks_marks_mailbag_question_numbered_list()
+    test_extract_blocks_does_not_steal_bold_author_reply()
+    test_extract_blocks_marks_name_attribution_without_comment_link()
+    test_extract_blocks_ignores_bold_headings()
+    test_extract_blocks_ignores_unbold_comment_link()
+    test_extract_blocks_ignores_citation_link_at_end()
+    test_extract_blocks_and_serialize_flat_mailbag()
     test_extract_image_from_figure()
     test_bare_image_and_decorative_filter()
     test_iframe_kind_classifies_hosts()

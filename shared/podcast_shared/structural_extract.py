@@ -229,7 +229,9 @@ def _collect_footnotes(region: Tag) -> tuple[dict[str, Block], list[str]]:
     """
     defs: dict[str, Block] = {}
     order: list[str] = []
-    def_divs = [d for d in region.find_all("div") if "footnote" in _classes(d) and "footnote-content" not in _classes(d)]
+    def_divs = [
+        d for d in region.find_all("div") if "footnote" in _classes(d) and "footnote-content" not in _classes(d)
+    ]
     for d in def_divs:
         block = extract_footnote(d)
         if block is not None:
@@ -241,9 +243,7 @@ def _collect_footnotes(region: Tag) -> tuple[dict[str, Block], list[str]]:
     return defs, order
 
 
-def _resolve_footnote(
-    number: str, defs: dict[str, Block], order: list[str], referenced: set[str]
-) -> Block | None:
+def _resolve_footnote(number: str, defs: dict[str, Block], order: list[str], referenced: set[str]) -> Block | None:
     """Resolve a reference number to its footnote Block, once.
 
     Prefers an exact number match; falls back to the next unreferenced definition in
@@ -301,6 +301,116 @@ def extract_card(el: Tag) -> Block | None:
     return Block(type="card", payload={"title": title, "publication": publication, "href": href})
 
 
+_COMMENT_HREF_RE = re.compile(r"/comment/|commentId=|/note/c-")
+_NAME_ATTR_RE = re.compile(r"^([A-Za-z0-9_.\-][A-Za-z0-9_.\- ]{0,30})(?:\s*\[[^\]]*\])?:\s+[A-Z“\"']")
+_SECTION_HEADING_RE = re.compile(r"^(part|chapter|step|section|rule|tip|myth|item)\s+\w+$", re.IGNORECASE)
+_LIST_ITEM_RE = re.compile(r"^(\d+[\.\)]|\([0-9a-zA-Z]+\)|[•\-\*])\s+")
+_CONJUNCTION_RE = re.compile(r"^(or|and|but|also|plus|moreover|specifically)\b", re.IGNORECASE)
+
+_FALSE_HEADINGS: frozenset[str] = frozenset(
+    {
+        "update",
+        "note",
+        "important note",
+        "eta",
+        "ps",
+        "p.s.",
+        "tl;dr",
+        "tldr",
+        "source",
+        "via",
+        "title",
+        "author",
+        "image",
+        "chart",
+        "figure",
+        "table",
+        "q",
+        "a",
+        "question",
+        "answer",
+        "pro tip",
+        "disclaimer",
+        "disclosure",
+        "correction",
+        "editor's note",
+        "warning",
+        "caution",
+        "case in point",
+        "one more thing",
+        "fun fact",
+        "remember",
+        "state and city roundup",
+    }
+)
+
+
+def _is_paragraph_mostly_bold(el: Tag, text: str) -> bool:
+    """Check if paragraph text is primarily wrapped in bold formatting (strong or b tags).
+
+    Returns:
+        True if at least 85% of non-whitespace characters are within bold tags.
+
+    """
+    non_ws_len = len("".join(text.split()))
+    if non_ws_len < 15:
+        return False
+    bold_non_ws = 0
+    for child in el.descendants:
+        if isinstance(child, Tag) and child.name in {"strong", "b"}:
+            parent_bold = False
+            for p in child.parents:
+                if p is el:
+                    break
+                if p.name in {"strong", "b"}:
+                    parent_bold = True
+                    break
+            if not parent_bold:
+                bold_non_ws += len("".join(child.get_text("").split()))
+    return bold_non_ws >= int(non_ws_len * 0.85)
+
+
+def _is_question_lead(el: Tag, text: str) -> bool:
+    """Check if a bold paragraph begins a reader question run.
+
+    Returns:
+        True if the paragraph starts with a comment link or commenter attribution prefix.
+
+    """
+    for a in el.find_all("a"):
+        href_val = a.get("href")
+        if not isinstance(href_val, str):
+            continue
+        if _COMMENT_HREF_RE.search(href_val) is not None:
+            a_text = a.get_text(strip=True)
+            if a_text:
+                pos = text.find(a_text)
+                if pos != -1 and pos <= 10:
+                    return True
+
+    m = _NAME_ATTR_RE.match(text)
+    if m is not None:
+        name = m.group(1).strip().lower()
+        if name not in _FALSE_HEADINGS and _SECTION_HEADING_RE.match(name) is None:
+            return True
+
+    return False
+
+
+def _is_question_continuation(text: str) -> bool:
+    """Check if a subsequent bold paragraph continues an active reader question.
+
+    Returns:
+        True if the paragraph contains a question mark, list item, or conjunction.
+
+    """
+    if "?" in text:
+        return True
+    if _LIST_ITEM_RE.match(text) is not None:
+        return True
+    return _CONJUNCTION_RE.match(text) is not None
+
+
 _TEXT_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 
 
@@ -317,6 +427,7 @@ def extract_blocks(region: Tag) -> list[Block]:
     blocks: list[Block] = []
     previous_text: str | None = None
     consumed: set[int] = set()  # id() of elements already emitted as a tweet
+    in_question_run = False
     footnote_defs, footnote_order = _collect_footnotes(region)  # removes def divs from region
     referenced: set[str] = set()
     for el in region.find_all((*_TEXT_TAGS, "table", "figure", "img", "iframe", "pre", "div")):
@@ -326,29 +437,34 @@ def extract_blocks(region: Tag) -> list[Block]:
             blocks.append(extract_tweet(el))
             consumed.add(id(el))
             previous_text = None
+            in_question_run = False
             continue
         if el.name == "figure":
             blocks.append(extract_image(el))
             consumed.add(id(el))  # skip the figure's inner <img> via the ancestor check
             previous_text = None
+            in_question_run = False
             continue
         if el.name == "img":
             if _is_decorative(el):
                 continue
             blocks.append(extract_image(el))
             previous_text = None
+            in_question_run = False
             continue
         if el.name == "iframe":
             embed = extract_iframe(el)
             if embed is not None:
                 blocks.append(embed)
                 previous_text = None
+                in_question_run = False
             continue
         if el.name == "pre":
             code_text = el.get_text("\n").strip()
             if code_text:
                 blocks.append(Block(type="code", payload={"text": code_text}))
                 previous_text = None
+                in_question_run = False
             continue
         if el.name == "div":
             classes = _classes(el)
@@ -358,6 +474,7 @@ def extract_blocks(region: Tag) -> list[Block]:
                     blocks.append(card)
                     consumed.add(id(el))
                     previous_text = None
+                    in_question_run = False
                 continue
             continue
         if el.name not in _TEXT_TAGS:
@@ -371,12 +488,27 @@ def extract_blocks(region: Tag) -> list[Block]:
         if not text or text == previous_text:
             continue
         previous_text = text
-        is_quote = el.name == "blockquote" or el.find_parent("blockquote") is not None
+        if el.name == "blockquote" or el.find_parent("blockquote") is not None:
+            is_quote = True
+            in_question_run = False
+        elif el.name == "p" and _is_paragraph_mostly_bold(el, text):
+            if _is_question_lead(el, text):
+                is_quote = True
+                in_question_run = True
+            elif in_question_run and _is_question_continuation(text):
+                is_quote = True
+            else:
+                is_quote = False
+                in_question_run = False
+        else:
+            is_quote = False
+            in_question_run = False
         blocks.append(Block(type="quote" if is_quote else "text", payload={"text": text}))
         for number in ref_numbers:  # inline each cited footnote right after its paragraph
             footnote = _resolve_footnote(number, footnote_defs, footnote_order, referenced)
             if footnote is not None:
                 blocks.append(footnote)
+                in_question_run = False
     for number in footnote_order:  # any footnotes never cited in text, appended in order
         if number not in referenced:
             blocks.append(footnote_defs[number])
