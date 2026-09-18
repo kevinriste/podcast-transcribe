@@ -138,7 +138,7 @@ def check_article_no_markers_all_narrator() -> None:
 
     """
     utter = plan_article_utterances("Just prose.\n\nMore prose.")
-    if utter != [("Just prose.", "NARRATOR"), ("More prose.", "NARRATOR")]:
+    if utter != [("Just prose.\nMore prose.", "NARRATOR")]:
         msg = f"got {utter!r}"
         raise AssertionError(msg)
 

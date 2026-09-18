@@ -22,6 +22,7 @@ import markdown
 import yaml
 from bs4 import BeautifulSoup
 from podcast_shared import (
+    ASIDE_MARKER,
     enable_post_in_podly,
     get_gemini_client,
     send_gotify_notification,
@@ -526,16 +527,31 @@ def unwrap_hard_wraps(text: str) -> str:
 _FOOTNOTE_DEF_RE = re.compile(r"^\[(\d+)\]\s+(.+)", re.DOTALL)
 
 
+def _footnote_aside(number: str, note: str) -> str:
+    """Render one footnote as an ``ASIDE_MARKER`` line so TTS voices it as an aside.
+
+    Matches the structured extractor's ``Footnote {n}: ...`` phrasing (see
+    ``aside_render``) so plaintext and HTML sources speak footnotes identically.
+
+    Returns:
+        A single ``❖ Footnote {n}: ...`` line, its text terminally punctuated.
+
+    """
+    text = note if note.endswith((".", "!", "?", "”")) else f"{note}."
+    return f"{ASIDE_MARKER}Footnote {number}: {text}"
+
+
 def relocate_footnotes(text: str) -> tuple[str, int]:
-    """Move ``[n]`` footnote definitions inline to their reference point.
+    """Move ``[n]`` footnote definitions to an aside at their reference point.
 
     Footnote definitions are paragraphs whose text starts with ``[n]`` (as some
     newsletters format their footnotes). Each is spliced in at its inline ``[n]``
-    reference, prefixed with a spoken "Footnote:" cue so a listener can tell an
-    aside from the main text. Markers sit at sentence boundaries in the source,
-    so in-place replacement reads as a between-sentence aside. Definitions with
-    no inline reference are left in place at the end. A no-op when the text has
-    no such footnote structure.
+    reference as its own ``ASIDE_MARKER`` paragraph, so the multi-voice renderer
+    reads it in the distinct aside voice (single-voice paths strip the marker and
+    read it as plain narration). Markers sit at sentence boundaries in the source,
+    so the aside lands between sentences. Definitions with no inline reference are
+    appended at the end, also as asides. A no-op when the text has no such footnote
+    structure.
 
     Returns:
         A tuple of the transformed text and the number of footnotes relocated.
@@ -558,13 +574,13 @@ def relocate_footnotes(text: str) -> tuple[str, int]:
     relocated = 0
     for number, note in definitions.items():
         marker = f"[{number}]"
+        aside = _footnote_aside(number, note)
         index = body.find(marker)
         if index == -1:
             # No inline reference — keep the definition rather than lose content.
-            body = body.rstrip() + f"\n\n{marker} {note}"
+            body = body.rstrip() + f"\n\n{aside}"
             continue
-        cue = f" Footnote: {note}" if note.endswith((".", "!", "?", "”")) else f" Footnote: {note}."
-        body = body[:index] + cue + body[index + len(marker) :]
+        body = body[:index] + f"\n\n{aside}\n\n" + body[index + len(marker) :]
         # Drop any further bare references to the same footnote.
         body = body.replace(marker, "")
         relocated += 1
@@ -666,21 +682,20 @@ def normalize_roman_numerals(text: str) -> tuple[str, int]:
 # the structural HTML extractor (which excludes boilerplate by DOM position and needs no
 # wrap/markdown/footnote repair). Whitespace, end-of-line pauses, and URL-to-context stay
 # on for every profile because they are non-destructive.
-STRUCTURED_ONLY_SKIP = frozenset({
-    "beehiiv_plaintext_conversion",
-    "beehiiv_emphasis_removal",
-    "unwrap_hard_wraps",
-    "footnote_relocation",
-    "roman_numeral_normalization",
-    "legal_bracket_unwrap",
-    "triple_dash_removal",
-    "empty_bracket_removal",
-    "unsubscribe_removal",
-    "view_online_removal",
-    "substack_refs_removal",
-    "substack_boilerplate_removal",
-    "standalone_at_removal",
-})
+STRUCTURED_ONLY_SKIP = frozenset(
+    {
+        "beehiiv_plaintext_conversion",
+        "beehiiv_emphasis_removal",
+        "unwrap_hard_wraps",
+        "footnote_relocation",
+        "roman_numeral_normalization",
+        "legal_bracket_unwrap",
+        "unsubscribe_removal",
+        "view_online_removal",
+        "substack_refs_removal",
+        "standalone_at_removal",
+    }
+)
 
 _URL_RE = re.compile(r"https?://(?:www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-z]{2,5}\b[-a-zA-Z0-9@:%_\+.~#?&//=]*")
 
@@ -789,16 +804,27 @@ def apply_general_cleaning(
             "legal_bracket_unwrap",
         )
 
-    # Triple dash removal
+    # Triple dash / divider removal (ASCII, unicode em/en-dashes, asterisks, and spaced variants)
     if is_enabled("triple_dash_removal"):
-        result = count_and_sub(r"---+", "", result, "triple_dash_removal")
+        result = count_and_sub(
+            r"(?m)^[ \t]*[-*\u2014\u2013]{3,}[ \t]*$|---+|[\u2014\u2013*]{3,}",
+            "",
+            result,
+            "triple_dash_removal",
+        )
+        result = count_and_sub(
+            r"(?m)^[ \t]*([-*\u2014\u2013][ \t]+){2,}[-*\u2014\u2013][ \t]*$",
+            "",
+            result,
+            "triple_dash_removal",
+        )
 
-    # Empty bracket removal
+    # Empty bracket removal (including interior whitespace)
     if is_enabled("empty_bracket_removal"):
         before_brackets = result
-        result = re.sub(r"\[\]", "", result)
-        result = re.sub(r"\(\)", "", result)
-        result = result.replace("<>", "")
+        result = re.sub(r"\[\s*\]", "", result)
+        result = re.sub(r"\(\s*\)", "", result)
+        result = re.sub(r"<\s*>", "", result)
         bracket_diff = len(before_brackets) - len(result)
         if bracket_diff > 0:
             stats["empty_bracket_removal"] = {"chars_removed": bracket_diff}
@@ -856,12 +882,41 @@ def apply_general_cleaning(
             "standalone_at_removal",
         )
 
-    # End-of-line punctuation (must be last)
-    if is_enabled("end_of_line_punctuation"):
-        result = re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", result)
-        stats["end_of_line_punctuation"] = {"applied": True}
-
     return result
+
+
+def apply_end_of_line_punctuation(
+    text: str,
+    metadata: dict[str, str],
+    config: PipelineConfig,
+    stats: dict[str, dict[str, int | bool]],
+) -> str:
+    """Append terminal punctuation to lines ending in a word character.
+
+    Runs after YAML text removals and replacements so anchored removal rules
+    (e.g. ^Advertisement$) match against un-punctuated line endings.
+
+    Returns:
+        The text with missing line-ending periods appended.
+
+    """
+    # Future architecture item: Replace end-of-line period insertion with explicit SSML <break> tags (see PUNCHLIST.md)
+    gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
+    overrides: list[CleaningOverride] = gc_config.get("overrides") or []
+    for override in overrides:
+        match_val = override.get("match")
+        if (
+            isinstance(match_val, dict)
+            and evaluate_match(match_val, metadata)  # pyright: ignore[reportUnknownArgumentType]
+            and "end_of_line_punctuation" in override
+            and not bool(override["end_of_line_punctuation"])
+        ):
+            return text
+    if "end_of_line_punctuation" in gc_config and not bool(gc_config["end_of_line_punctuation"]):
+        return text
+
+    stats["end_of_line_punctuation"] = {"applied": True}
+    return re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text)
 
 
 # ---------------------------------------------------------------------------
@@ -974,6 +1029,32 @@ def write_metadata_and_content(
         meta_block + "\n\n" + content,
         encoding="utf-8",
     )
+
+
+def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
+    """Check if the body text already begins with the author byline or headline.
+
+    Prevents double-byline at the start of articles (e.g. RSS feeds where the extracted
+    body already starts with author/headline).
+
+    Returns:
+        True if the leading lines match the author or headline; False otherwise.
+
+    """
+    if not body.strip():
+        return False
+    lines = [re.sub(r"^[^\w]+|[^\w]+$", "", ln.strip().lower()) for ln in body.splitlines() if ln.strip()][:3]
+    norm_from = re.sub(r"^[^\w]+|[^\w]+$", "", from_name.lower())
+    norm_title = re.sub(r"^[^\w]+|[^\w]+$", "", title.lower())
+
+    for line in lines:
+        if not line or len(line) < 4:
+            continue
+        if norm_from and (line == norm_from or line in norm_from or norm_from in line):
+            return True
+        if norm_title and (line == norm_title or line in norm_title or norm_title in line):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -1147,6 +1228,10 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         cleaned_text = apply_text_replacements(cleaned_text, config, replacement_stats)
         file_stats["text_replacements"] = replacement_stats
 
+        # End-of-line punctuation runs after removals/replacements so anchors match clean line endings
+        cleaned_text = apply_end_of_line_punctuation(cleaned_text, metadata, config, gc_stats)
+        file_stats["general_cleaning"] = gc_stats
+
     # Check empty (before adding header/footer, which would mask empty content)
     if not cleaned_text.strip():
         empty_reason = "Content empty after cleaning"
@@ -1179,7 +1264,7 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         title = metadata.get("title", "").strip()
         header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
         footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
-        if header:
+        if header and not body_leads_with_byline(cleaned_text, from_name, title):
             cleaned_text = header + "\n" + cleaned_text
         if from_name or title:
             cleaned_text = cleaned_text.rstrip() + footer
