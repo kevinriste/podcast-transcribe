@@ -49,12 +49,24 @@ def test_url_step_runs_in_both_profiles() -> None:
             _fail(f"url step missing for {extraction}: {out!r}")
 
 
+def test_relocate_footnotes_as_aside() -> None:
+    """Footnotes relocated inline are formatted with ASIDE_MARKER."""
+    sample = "First point.[1] Second point.\n\n[1] Details on the first point."
+    out, count = pt.relocate_footnotes(sample)
+    if count != 1:
+        _fail(f"expected 1 footnote relocated, got {count}")
+    expected_aside = "❖ Footnote 1: Details on the first point."
+    if expected_aside not in out:
+        _fail(f"aside marker not found in output: {out!r}")
+
+
 def run_tests() -> None:
     """Run all cleaning tests."""
     logging.basicConfig(level=logging.INFO)
     test_urls_to_context_is_non_destructive()
     test_structured_profile_skips_repair_steps()
     test_url_step_runs_in_both_profiles()
+    test_relocate_footnotes_as_aside()
     logging.info("cleaning tests passed")
 
 

@@ -22,6 +22,7 @@ import markdown
 import yaml
 from bs4 import BeautifulSoup
 from podcast_shared import (
+    ASIDE_MARKER,
     enable_post_in_podly,
     get_gemini_client,
     send_gotify_notification,
@@ -526,16 +527,31 @@ def unwrap_hard_wraps(text: str) -> str:
 _FOOTNOTE_DEF_RE = re.compile(r"^\[(\d+)\]\s+(.+)", re.DOTALL)
 
 
+def _footnote_aside(number: str, note: str) -> str:
+    """Render one footnote as an ``ASIDE_MARKER`` line so TTS voices it as an aside.
+
+    Matches the structured extractor's ``Footnote {n}: ...`` phrasing (see
+    ``aside_render``) so plaintext and HTML sources speak footnotes identically.
+
+    Returns:
+        A single ``❖ Footnote {n}: ...`` line, its text terminally punctuated.
+
+    """
+    text = note if note.endswith((".", "!", "?", "”")) else f"{note}."
+    return f"{ASIDE_MARKER}Footnote {number}: {text}"
+
+
 def relocate_footnotes(text: str) -> tuple[str, int]:
-    """Move ``[n]`` footnote definitions inline to their reference point.
+    """Move ``[n]`` footnote definitions to an aside at their reference point.
 
     Footnote definitions are paragraphs whose text starts with ``[n]`` (as some
     newsletters format their footnotes). Each is spliced in at its inline ``[n]``
-    reference, prefixed with a spoken "Footnote:" cue so a listener can tell an
-    aside from the main text. Markers sit at sentence boundaries in the source,
-    so in-place replacement reads as a between-sentence aside. Definitions with
-    no inline reference are left in place at the end. A no-op when the text has
-    no such footnote structure.
+    reference as its own ``ASIDE_MARKER`` paragraph, so the multi-voice renderer
+    reads it in the distinct aside voice (single-voice paths strip the marker and
+    read it as plain narration). Markers sit at sentence boundaries in the source,
+    so the aside lands between sentences. Definitions with no inline reference are
+    appended at the end, also as asides. A no-op when the text has no such footnote
+    structure.
 
     Returns:
         A tuple of the transformed text and the number of footnotes relocated.
@@ -558,13 +574,13 @@ def relocate_footnotes(text: str) -> tuple[str, int]:
     relocated = 0
     for number, note in definitions.items():
         marker = f"[{number}]"
+        aside = _footnote_aside(number, note)
         index = body.find(marker)
         if index == -1:
             # No inline reference — keep the definition rather than lose content.
-            body = body.rstrip() + f"\n\n{marker} {note}"
+            body = body.rstrip() + f"\n\n{aside}"
             continue
-        cue = f" Footnote: {note}" if note.endswith((".", "!", "?", "”")) else f" Footnote: {note}."
-        body = body[:index] + cue + body[index + len(marker) :]
+        body = body[:index] + f"\n\n{aside}\n\n" + body[index + len(marker) :]
         # Drop any further bare references to the same footnote.
         body = body.replace(marker, "")
         relocated += 1
