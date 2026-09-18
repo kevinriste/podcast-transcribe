@@ -391,15 +391,17 @@ def main() -> None:
                         content_text = soup.get_text()
                     else:
                         content_text = str(getattr(parsed_feed_entry, "summary", "") or "")
-                metadata_block = "\n".join(
-                    [
-                        f"META_FROM: {feed_title_raw}",
-                        f"META_TITLE: {meta_title}",
-                        f"META_SOURCE_URL: {original_url}",
-                        "META_SOURCE_KIND: rss",
-                        "META_INTAKE_TYPE: rss",
-                    ],
-                )
+                entry_id: str = str(getattr(parsed_feed_entry, "id", ""))
+                metadata_lines = [
+                    f"META_FROM: {feed_title_raw}",
+                    f"META_TITLE: {meta_title}",
+                    f"META_SOURCE_URL: {original_url}",
+                    "META_SOURCE_KIND: rss",
+                    "META_INTAKE_TYPE: rss",
+                ]
+                if entry_id:
+                    metadata_lines.append(f"META_GUID: {entry_id}")
+                metadata_block = "\n".join(metadata_lines)
                 logging.info("Writing raw metadata and text to text input")
                 _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
                 _ = store_intake_html(
@@ -410,7 +412,6 @@ def main() -> None:
                     intake_type="rss",
                 )
                 pathlib.Path(guid_dir).mkdir(parents=True, exist_ok=True)
-                entry_id: str = str(getattr(parsed_feed_entry, "id", ""))
                 _ = pathlib.Path(guid_filename).write_text(entry_id, encoding="utf-8")
                 # Copy new version of guids txt file
                 date_string = datetime.now(tz=UTC).strftime("%Y%m%d-%H%M%S")
