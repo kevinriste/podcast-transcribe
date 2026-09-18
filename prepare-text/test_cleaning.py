@@ -48,13 +48,36 @@ def test_structured_profile_skips_repair_steps() -> None:
 
 def test_byline_deduplication() -> None:
     """If body already leads with author or headline, header is not duplicated."""
+    # Positive case 1: Leading author line and title line
     body_with_author = "Ross Douthat.\n\nWho Are the Good Guys?\n\nBody paragraph."
     if not pt.body_leads_with_byline(body_with_author, "Ross Douthat", "Who Are the Good Guys?"):
         _fail("failed to detect leading author in body")
 
+    # Positive case 2: Blog archive post where line 0 is the title
+    body_with_title_only = "Can Atheists Appreciate Chesterton?\n\nChesterton was a Catholic..."
+    if not pt.body_leads_with_byline(body_with_title_only, "Slate Star Codex", "Can Atheists Appreciate Chesterton?"):
+        _fail("failed to detect leading title in body")
+
+    # Negative case 1: Plain body without author or title
     body_plain = "The White House announced a new initiative today.\n\nSecond paragraph."
     if pt.body_leads_with_byline(body_plain, "Matthew Yglesias", "Tariffs"):
         _fail("falsely detected leading author in plain body")
+
+    # Negative case 2: Publication name appears inside a body sentence (e.g. Garbage Day)
+    body_mentioning_from = (
+        "I Talked To Someone From Rwanda Running A Slop Video Account On X.\n\n"
+        "The national meltdown over clipping has officially become a moral panic.\n\n"
+        "Bernstein told Garbage Day he has been covering the looksmaxxing subculture for years."
+    )
+    if pt.body_leads_with_byline(body_mentioning_from, "Garbage Day", "Everything's probably fake now"):
+        _fail("falsely detected leading author when publication name appears inside body sentence")
+
+    # Negative case 3: Title words appear inside an opening sentence (e.g. Arnold Kling)
+    body_mentioning_title = (
+        "Claude and I remember the movies of the 1970s. If you are old enough, see how many you can recall."
+    )
+    if pt.body_leads_with_byline(body_mentioning_title, "Arnold Kling from In My Tribe", "Movies of the 1970s"):
+        _fail("falsely detected leading title when title appears inside opening prose sentence")
 
 
 def test_period_runs_after_removals() -> None:
