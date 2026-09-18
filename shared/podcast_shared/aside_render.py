@@ -22,6 +22,12 @@ _MARKER_RE = re.compile(re.escape(EMBED_MARKER_PREFIX) + r"(\d+)" + re.escape(EM
 # Placeholder alt values (e.g. Substack's generic alt="Image") that carry no real
 # description — never speak them as the image's content.
 _GENERIC_IMAGE_ALTS = frozenset({"image", "photo", "picture", "img"})
+# Descriptions matching platform chrome, divider bars, sponsor/app banners, or ad tracking pixels.
+# When vision describes such chrome, drop the aside entirely so it is never voiced.
+_CHROME_IMAGE_DESCRIPTION_RE = re.compile(
+    r"\b(?:logo|icon|divider|adchoices|play button)\b|solid (?:black|white) .*rectangle|horizontal line|get the app|start writing|banner reads",
+    re.IGNORECASE,
+)
 
 
 def _render_own(block: Block) -> str:
@@ -39,6 +45,8 @@ def _render_own(block: Block) -> str:
         # "Image: Image." — treat such placeholder alts as no description.
         if not desc or desc.lower() in _GENERIC_IMAGE_ALTS:
             return "The author includes an image."
+        if _CHROME_IMAGE_DESCRIPTION_RE.search(desc):
+            return ""
         desc = desc.rstrip()
         return f"Image: {desc}" if desc[-1:] in ".!?" else f"Image: {desc}."
     if block.type in {"video", "audio"}:

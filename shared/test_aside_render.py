@@ -104,6 +104,25 @@ def test_render_image_generic_alt_is_not_a_description() -> None:
         _fail(f"real description dropped: {out2!r}")
 
 
+def test_render_image_aside_drops_chrome_descriptions() -> None:
+    """Image descriptions matching chrome patterns render empty so serialize_flat skips them."""
+    chrome_descriptions = [
+        "The Facebook logo in blue and white.",
+        "An icon of an arrow pointing right.",
+        "A solid black rectangle divider.",
+        "A thin white horizontal line.",
+        "An AdChoices logo banner.",
+        "Start writing button in orange.",
+        "Get the app on iPhone.",
+        "A play button overlay.",
+        "Banner reads: Subscribe to newsletter.",
+    ]
+    for desc in chrome_descriptions:
+        out = render_block_aside(Block(type="image", payload={"description": desc}))
+        if out != "":
+            _fail(f"chrome description {desc!r} should render empty, got {out!r}")
+
+
 def test_serialize_flat_marks_quotes_and_asides() -> None:
     """Text stays plain; quotes get BLOCKQUOTE_MARKER; embeds get ASIDE_MARKER."""
     body = serialize_flat(
@@ -189,6 +208,7 @@ def run_tests() -> None:
     test_render_quote_is_verbatim()
     test_render_image_from_caption()
     test_render_image_generic_alt_is_not_a_description()
+    test_render_image_aside_drops_chrome_descriptions()
     test_image_no_double_period()
     test_render_video_audio_code()
     test_render_footnote_and_card()
