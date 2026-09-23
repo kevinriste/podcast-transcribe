@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 Describer = Callable[[str, str, str], str]
 
-VISION_MODEL = os.environ.get("EMBED_VISION_MODEL", "gpt-5.6")
+VISION_MODEL = os.environ.get("EMBED_VISION_MODEL", "gpt-6-luna")
 
 _PROMPT = (
     "Describe this image for a podcast listener in one concise sentence. State what it "
