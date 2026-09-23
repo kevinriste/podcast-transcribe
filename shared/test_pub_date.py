@@ -5,7 +5,27 @@ import pathlib
 import tempfile
 from datetime import UTC, datetime
 
-from podcast_shared import set_file_pub_date
+from podcast_shared import pub_date_from_filename, set_file_pub_date
+
+
+def check_filename_parser() -> None:
+    """Verify the YYYYMMDD-HHMMSS filename prefix parses to a local datetime.
+
+    Raises:
+        AssertionError: If a valid prefix does not parse, or an invalid one parses.
+
+    """
+    got = pub_date_from_filename("20130502-120000-Author- Some Title-20240101")
+    expected = datetime(2013, 5, 2, 12, 0, 0)  # noqa: DTZ001 — naive local, matches how stamps are created
+    if got != expected:
+        msg = f"prefix parse {got!r} != {expected!r}"
+        raise AssertionError(msg)
+    if pub_date_from_filename("no-date-here") is not None:
+        msg = "a stem without a leading date prefix must parse to None"
+        raise AssertionError(msg)
+    if pub_date_from_filename("20139902-120000-bad-month") is not None:
+        msg = "an out-of-range date prefix must parse to None"
+        raise AssertionError(msg)
 
 
 def check() -> None:
@@ -33,5 +53,6 @@ def check() -> None:
 
 
 if __name__ == "__main__":
+    check_filename_parser()
     check()
     logging.info("set_file_pub_date test passed.")

@@ -5,14 +5,24 @@
 # - All match conditions are AND'd and case-insensitive
 # - Valid match fields: from, title, source_url, source_kind, source_name, intake_type
 # - Match operators: {contains: "..."} or {not_contains: "..."}
-# - Filter actions: "skip" (default, stops rule evaluation) or "notify" (continues)
-# - A skip rule before other rules with overlapping match criteria is an error
+# - Filter actions:
+#     - "skip" (default, stops rule evaluation)
+#     - "notify" (sends Gotify notification, continues to next rule)
+#     - "podly_process" / "podly" (enables episode directly in Podly, stops rule evaluation, logs only, no notification)
+# - A terminal rule (skip / podly_process) before other rules with overlapping match criteria is an error
 # - Valid flags for patterns: ignorecase, multiline, dotall (or a list of them)
 
 # ---------------------------------------------------------------------------
-# Filters — decide which files to skip or notify about
+# Filters — decide which files to skip, notify about, or send to Podly
 # ---------------------------------------------------------------------------
 filters:
+  # Enable in Podly directly and skip TTS (logs only, sends no push notification)
+  - match:
+      from: {contains: "Example Podcast"}
+      title: {contains: "Special Guest"}
+    action: podly_process
+    reason: "Example Podcast: special guest episode detected (enabled in Podly)"
+
   # Notify first, then skip — notify runs before skip for the same match.
   # Use action: notify to send a Gotify alert without stopping processing.
   - match:
@@ -43,6 +53,12 @@ filters:
       title: {contains: "off-topic"}
     action: skip
     reason: "Example Newsletter: skip off-topic episodes"
+
+  # Skip payment and invoice receipts (contains subscriber receipt chrome)
+  - match:
+      title: {contains: "receipt"}
+    action: skip
+    reason: "Subscription payment receipt"
 
 # ---------------------------------------------------------------------------
 # General cleaning — all default to true; only list overrides here

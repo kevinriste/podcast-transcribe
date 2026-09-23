@@ -119,10 +119,13 @@ def plan_article_utterances(
     Lines the intake prefixed with ``marker`` are quoted passages; lines prefixed with
     ``aside_marker`` are rendered embed asides (voiced by the meta-narrator aside voice);
     everything else is the author's own words, spoken by the narrator. Consecutive quote
-    lines merge into one utterance so a multi-paragraph quote is read in a single voice.
-    Each quote's speaker key is its own text, so distinct quotes get deterministically
-    varied voices via ``assign_voice`` — the same mechanism the comment path uses for
-    commenter names; asides use the fixed ``"ASIDE"`` speaker.
+    lines merge into one utterance so a multi-paragraph quote is read in a single voice,
+    and consecutive narrator lines likewise merge (joined with newlines, matching what the
+    single-voice path feeds Google TTS) so a run of the author's own paragraphs renders as
+    one utterance instead of one-per-paragraph. Each quote's speaker key is its own text,
+    so distinct quotes get deterministically varied voices via ``assign_voice`` — the same
+    mechanism the comment path uses for commenter names; asides use the fixed ``"ASIDE"``
+    speaker.
 
     Returns:
         Ordered ``(text, speaker)`` pairs; speaker is ``"NARRATOR"``, ``"ASIDE"``, or the
@@ -133,6 +136,7 @@ def plan_article_utterances(
     aside_key = aside_marker.strip()
     out: list[tuple[str, str]] = []
     quote_run: list[str] = []
+    narrator_run: list[str] = []
 
     def flush_quote() -> None:
         if quote_run:
@@ -140,19 +144,27 @@ def plan_article_utterances(
             out.append((quote_text, quote_text))
             quote_run.clear()
 
+    def flush_narrator() -> None:
+        if narrator_run:
+            out.append(("\n".join(narrator_run), "NARRATOR"))
+            narrator_run.clear()
+
     for raw_line in body.splitlines():
         line = raw_line.strip()
         if not line:
             continue
         if line.startswith(marker_key):
+            flush_narrator()
             quote_run.append(line[len(marker_key) :].strip())
         elif line.startswith(aside_key):
             flush_quote()
+            flush_narrator()
             out.append((line[len(aside_key) :].strip(), "ASIDE"))
         else:
             flush_quote()
-            out.append((line, "NARRATOR"))
+            narrator_run.append(line)
     flush_quote()
+    flush_narrator()
     return out
 
 

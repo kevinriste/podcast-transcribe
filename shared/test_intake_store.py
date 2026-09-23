@@ -63,7 +63,12 @@ def test_store_skips_empty_html() -> None:
     """Empty/whitespace HTML is a no-op (no file written)."""
     with tempfile.TemporaryDirectory() as tmp:
         html_path = store_intake_html(
-            source="x", episode_id="1", html="   ", url="u", intake_type="email", store_root=Path(tmp),
+            source="x",
+            episode_id="1",
+            html="   ",
+            url="u",
+            intake_type="email",
+            store_root=Path(tmp),
         )
         if html_path.exists():
             _fail("empty HTML should not have been written")

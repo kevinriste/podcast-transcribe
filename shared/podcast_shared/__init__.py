@@ -3,7 +3,8 @@
 
 import logging
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 
 import requests
 from google import genai
@@ -18,6 +19,8 @@ from podcast_shared.describe import describe_image as describe_image
 from podcast_shared.describe import enrich_images as enrich_images
 from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
+from podcast_shared.podly import enable_post_in_podly as enable_post_in_podly
+from podcast_shared.podly import get_podly_config as get_podly_config
 from podcast_shared.structural_extract import ASIDE_MARKER as ASIDE_MARKER
 from podcast_shared.structural_extract import BLOCKQUOTE_MARKER as BLOCKQUOTE_MARKER
 from podcast_shared.structural_extract import EMBED_MARKER_PREFIX as EMBED_MARKER_PREFIX
@@ -193,3 +196,79 @@ def set_file_pub_date(path: str, pub_date: datetime) -> None:
     """
     ts = pub_date.timestamp()
     os.utime(path, (ts, ts))
+
+
+def pub_date_from_filename(stem: str) -> datetime | None:
+    """Parse a leading ``YYYYMMDD-HHMMSS`` filename prefix into a naive local datetime.
+
+    Every intake path (imap, rss, archive) names its output with this prefix, built
+    from the source's own date (email date, feed ``published``, post date). The prefix
+    survives the pipeline, so it is the original-receipt fallback for episode ordering
+    when no explicit ``META_PUB_DATE`` header is present.
+
+    Returns:
+        The parsed datetime, or None if the stem has no valid date prefix.
+
+    """
+    match = re.match(r"^(\d{8})-(\d{6})", stem)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
+    except ValueError:
+        return None
+
+
+# A "Highlights From The Comments" episode is placed this long after the article it
+# discusses so it sorts immediately after its friend. Small enough never to leapfrog a
+# closely following episode. Shared by every producer/re-orderer of comment episodes.
+COMMENT_OFFSET = timedelta(seconds=60)
+
+_PUBLISHED_STAMP_RE = re.compile(r"(\d{8})-(\d{6})")
+
+
+def stamp_from_name(stem: str) -> datetime | None:
+    """Extract the first embedded ``YYYYMMDD-HHMMSS`` stamp from a *published* filename.
+
+    Unlike ``pub_date_from_filename`` (anchored, for clean intake stems), published
+    names carry the stamp after the source prefix (e.g. ``Source- 20130502-120000- Title``),
+    so it is searched for anywhere.
+
+    Returns:
+        The parsed naive-local datetime, or None if no valid stamp is present.
+
+    """
+    match = _PUBLISHED_STAMP_RE.search(stem)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(f"{match.group(1)}-{match.group(2)}", "%Y%m%d-%H%M%S")  # noqa: DTZ007
+    except ValueError:
+        return None
+
+
+def is_comment_filename(stem: str) -> bool:
+    """Detect whether a published filename is a comment-highlights episode.
+
+    Returns:
+        True if the filename carries the ``COMMENTS-`` marker.
+
+    """
+    return "COMMENTS-" in stem
+
+
+def title_key(stem: str) -> str:
+    """Reduce a published filename to the title shared by an article and its comment episode.
+
+    Strips the trailing ``-YYYYMMDD`` render date, the leading ``<source>- <stamp>- ``
+    prefix, and a comment's ``COMMENTS-`` marker. Pairing a comment to its article keys
+    on this value.
+
+    Returns:
+        The shared title portion of the filename.
+
+    """
+    key = re.sub(r"-\d{8}$", "", stem)
+    key = re.sub(r"^.*?\d{8}-\d{6}-\s*", "", key)
+    key = re.sub(r"^COMMENTS-\s*", "", key)
+    return key.strip()

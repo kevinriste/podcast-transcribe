@@ -25,6 +25,7 @@ from podcast_shared import (
     apply_id3_tags,
     generate_summary,
     get_gemini_client,
+    pub_date_from_filename,
     send_gotify_notification,
     set_file_pub_date,
     split_metadata,
@@ -75,14 +76,16 @@ GEMINI_TTS_MODELS = {
 }
 DEFAULT_GEMINI_VOICE = "Sulafat"
 
-BATCH_JOB_RUNNING_STATES = frozenset({
-    genai_types.JobState.JOB_STATE_UNSPECIFIED,
-    genai_types.JobState.JOB_STATE_QUEUED,
-    genai_types.JobState.JOB_STATE_PENDING,
-    genai_types.JobState.JOB_STATE_RUNNING,
-    genai_types.JobState.JOB_STATE_PAUSED,
-    genai_types.JobState.JOB_STATE_UPDATING,
-})
+BATCH_JOB_RUNNING_STATES = frozenset(
+    {
+        genai_types.JobState.JOB_STATE_UNSPECIFIED,
+        genai_types.JobState.JOB_STATE_QUEUED,
+        genai_types.JobState.JOB_STATE_PENDING,
+        genai_types.JobState.JOB_STATE_RUNNING,
+        genai_types.JobState.JOB_STATE_PAUSED,
+        genai_types.JobState.JOB_STATE_UPDATING,
+    }
+)
 
 
 INTAKE_TYPE_LABELS = {
@@ -691,9 +694,11 @@ def finalize_episode(
         title_for_tag = f"{title_for_tag} [{annotation}]"
     apply_id3_tags(output_filename, title=title_for_tag, description=description, source_url=meta_source_url)
 
-    # Set mtime from META_PUB_DATE so Dropcaster orders episodes deterministically
+    # Set mtime so Dropcaster orders episodes by original receipt date
     # (its ID3-TRDA path is unusable via mutagen, so it falls back to file mtime).
-    pub_date = parse_pub_date(metadata)
+    # Precedence: explicit META_PUB_DATE header, then the input filename's
+    # YYYYMMDD-HHMMSS prefix, else leave the export time (≈ render time).
+    pub_date = parse_pub_date(metadata) or pub_date_from_filename(name)
     if pub_date is not None:
         set_file_pub_date(output_filename, pub_date)
 

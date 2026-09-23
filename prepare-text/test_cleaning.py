@@ -25,19 +25,82 @@ def test_urls_to_context_is_non_destructive() -> None:
 
 
 def test_structured_profile_skips_repair_steps() -> None:
-    """Structured intake skips plain-text repair steps; plaintext still applies them."""
+    """Structured intake skips plain-text repair steps like @ removal, but runs Substack boilerplate removal."""
     sample = "Body.\n\nShare\n\n@\n\nMore."
     struct_stats: dict[str, dict[str, int | bool]] = {}
-    struct_out = pt.apply_general_cleaning(sample, {"source_kind": "substack", "extraction": "structured"}, {}, struct_stats)
-    if "substack_boilerplate_removal" in struct_stats or "standalone_at_removal" in struct_stats:
-        _fail(f"structured should skip repair steps: {list(struct_stats)}")
-    if "Share" not in struct_out or "@" not in struct_out:
-        _fail(f"structured wrongly mutated content: {struct_out!r}")
+    struct_out = pt.apply_general_cleaning(
+        sample, {"source_kind": "substack", "extraction": "structured"}, {}, struct_stats
+    )
+    if "standalone_at_removal" in struct_stats:
+        _fail(f"structured should skip standalone_at_removal: {list(struct_stats)}")
+    if "substack_boilerplate_removal" not in struct_stats:
+        _fail(f"structured should run substack_boilerplate_removal: {list(struct_stats)}")
+    if "Share" in struct_out:
+        _fail(f"structured failed to remove Share boilerplate: {struct_out!r}")
+    if "@" not in struct_out:
+        _fail(f"structured wrongly removed @: {struct_out!r}")
 
     plain_stats: dict[str, dict[str, int | bool]] = {}
     _ = pt.apply_general_cleaning(sample, {"source_kind": "substack", "extraction": "plaintext"}, {}, plain_stats)
     if "substack_boilerplate_removal" not in plain_stats or "standalone_at_removal" not in plain_stats:
         _fail(f"plaintext should apply repair steps: {list(plain_stats)}")
+
+
+def test_byline_deduplication() -> None:
+    """If body already leads with author or headline, header is not duplicated."""
+    # Positive case 1: Leading author line and title line
+    body_with_author = "Ross Douthat.\n\nWho Are the Good Guys?\n\nBody paragraph."
+    if not pt.body_leads_with_byline(body_with_author, "Ross Douthat", "Who Are the Good Guys?"):
+        _fail("failed to detect leading author in body")
+
+    # Positive case 2: Blog archive post where line 0 is the title
+    body_with_title_only = "Can Atheists Appreciate Chesterton?\n\nChesterton was a Catholic..."
+    if not pt.body_leads_with_byline(body_with_title_only, "Slate Star Codex", "Can Atheists Appreciate Chesterton?"):
+        _fail("failed to detect leading title in body")
+
+    # Negative case 1: Plain body without author or title
+    body_plain = "The White House announced a new initiative today.\n\nSecond paragraph."
+    if pt.body_leads_with_byline(body_plain, "Matthew Yglesias", "Tariffs"):
+        _fail("falsely detected leading author in plain body")
+
+    # Negative case 2: Publication name appears inside a body sentence (e.g. Garbage Day)
+    body_mentioning_from = (
+        "I Talked To Someone From Rwanda Running A Slop Video Account On X.\n\n"
+        "The national meltdown over clipping has officially become a moral panic.\n\n"
+        "Bernstein told Garbage Day he has been covering the looksmaxxing subculture for years."
+    )
+    if pt.body_leads_with_byline(body_mentioning_from, "Garbage Day", "Everything's probably fake now"):
+        _fail("falsely detected leading author when publication name appears inside body sentence")
+
+    # Negative case 3: Title words appear inside an opening sentence (e.g. Arnold Kling)
+    body_mentioning_title = (
+        "Claude and I remember the movies of the 1970s. If you are old enough, see how many you can recall."
+    )
+    if pt.body_leads_with_byline(body_mentioning_title, "Arnold Kling from In My Tribe", "Movies of the 1970s"):
+        _fail("falsely detected leading title when title appears inside opening prose sentence")
+
+
+def test_period_runs_after_removals() -> None:
+    """Text removals with line-end anchors match because period append runs after removals."""
+    config: pt.PipelineConfig = {
+        "text_removals": [
+            {
+                "pattern": r"^Advertisement$",
+                "reason": "strip ads",
+                "flags": "multiline",
+            }
+        ]
+    }
+    raw = "Lead paragraph\n\nAdvertisement\n\nFollowup paragraph\n"
+    gc_stats: dict[str, dict[str, int | bool]] = {}
+    cleaned = pt.apply_general_cleaning(raw, {}, config, gc_stats)
+    removal_stats: dict[str, dict[str, int]] = {}
+    cleaned = pt.apply_text_removals(cleaned, config, removal_stats)
+    cleaned = pt.apply_end_of_line_punctuation(cleaned, {}, config, gc_stats)
+    if "Advertisement" in cleaned:
+        _fail(f"Advertisement was not removed: {cleaned!r}")
+    if "Lead paragraph." not in cleaned:
+        _fail(f"Period was not appended to lead paragraph: {cleaned!r}")
 
 
 def test_url_step_runs_in_both_profiles() -> None:
@@ -49,12 +112,37 @@ def test_url_step_runs_in_both_profiles() -> None:
             _fail(f"url step missing for {extraction}: {out!r}")
 
 
+def test_relocate_footnotes_as_aside() -> None:
+    """Footnotes relocated inline are formatted with ASIDE_MARKER."""
+    sample = "First point.[1] Second point.\n\n[1] Details on the first point."
+    out, count = pt.relocate_footnotes(sample)
+    if count != 1:
+        _fail(f"expected 1 footnote relocated, got {count}")
+    expected_aside = "❖ Footnote 1: Details on the first point."
+    if expected_aside not in out:
+        _fail(f"aside marker not found in output: {out!r}")
+
+
+def test_empty_brackets_and_dividers() -> None:
+    """Empty brackets with whitespace and non-ASCII/spaced dividers are removed."""
+    sample = "Start [ ] with (   ) and <  > brackets.\n\n———\n\nMiddle text.\n\n* * *\n\nEnd."
+    stats: dict[str, dict[str, int | bool]] = {}
+    out = pt.apply_general_cleaning(sample, {}, {}, stats)
+    for token in ("[ ]", "(   )", "<  >", "———", "* * *"):
+        if token in out:
+            _fail(f"token {token!r} was not removed: {out!r}")
+
+
 def run_tests() -> None:
     """Run all cleaning tests."""
     logging.basicConfig(level=logging.INFO)
     test_urls_to_context_is_non_destructive()
     test_structured_profile_skips_repair_steps()
     test_url_step_runs_in_both_profiles()
+    test_relocate_footnotes_as_aside()
+    test_empty_brackets_and_dividers()
+    test_byline_deduplication()
+    test_period_runs_after_removals()
     logging.info("cleaning tests passed")
 
 
