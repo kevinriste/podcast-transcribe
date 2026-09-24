@@ -15,10 +15,14 @@ from mutagen.id3._util import ID3NoHeaderError  # noqa: PLC2701
 from podcast_shared.aside_render import render_block_aside as render_block_aside
 from podcast_shared.aside_render import resolve_markers as resolve_markers
 from podcast_shared.aside_render import serialize_flat as serialize_flat
+from podcast_shared.describe import VisionRejectedError as VisionRejectedError
+from podcast_shared.describe import VisionUnavailableError as VisionUnavailableError
 from podcast_shared.describe import describe_image as describe_image
 from podcast_shared.describe import enrich_images as enrich_images
 from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
+from podcast_shared.json_narrow import is_json_array as is_json_array
+from podcast_shared.json_narrow import is_json_object as is_json_object
 from podcast_shared.podly import enable_post_in_podly as enable_post_in_podly
 from podcast_shared.podly import get_podly_config as get_podly_config
 from podcast_shared.structural_extract import ASIDE_MARKER as ASIDE_MARKER

@@ -51,7 +51,8 @@ VALID_MATCH_FIELDS = frozenset(
     {"from", "title", "source_url", "source_kind", "source_name", "intake_type", "guid"},
 )
 VALID_MATCH_OPERATORS = frozenset({"contains", "not_contains"})
-VALID_ACTIONS = frozenset({"skip", "notify", "podly_process", "podly"})
+VALID_ACTIONS = frozenset({"skip", "notify", "podly_process"})
+TERMINAL_ACTIONS = frozenset({"skip", "podly_process"})
 VALID_FLAGS = frozenset({"ignorecase", "multiline", "dotall"})
 CLEANING_STEPS = (
     "beehiiv_plaintext_conversion",
@@ -86,20 +87,10 @@ class NotifyConfig(TypedDict):
     title: str
 
 
-class PodlyConfig(TypedDict, total=False):
-    """Podly instance configuration overrides."""
-
-    url: str
-    username: str
-    password: str
-
-
 class _FilterRuleOptional(TypedDict, total=False):
-    action: str  # "skip" | "notify" | "podly_process" | "podly"
+    action: str  # "skip" | "notify" | "podly_process"
     llm_check: str
     notify: NotifyConfig
-    podly: PodlyConfig
-    podly_process: bool
 
 
 class FilterRule(_FilterRuleOptional):
@@ -165,7 +156,6 @@ class PipelineConfig(TypedDict, total=False):
     general_cleaning: GeneralCleaningConfig
     text_removals: list[TextRemoval]
     text_replacements: list[TextReplacement]
-    podly: PodlyConfig
 
 
 class FileStats(TypedDict):
@@ -245,19 +235,12 @@ def validate_config(config: PipelineConfig) -> None:
 
     """
     valid_top_keys = frozenset(
-        {"filters", "general_cleaning", "text_removals", "text_replacements", "podly"},
+        {"filters", "general_cleaning", "text_removals", "text_replacements"},
     )
     for key in config:
         if key not in valid_top_keys:
             msg = f"Unknown top-level key: {key!r}"
             raise ValueError(msg)
-
-    valid_podly_keys = frozenset({"url", "username", "password"})
-    if "podly" in config:
-        for key in config["podly"]:
-            if key not in valid_podly_keys:
-                msg = f"podly: unknown key {key!r}"
-                raise ValueError(msg)
 
     # Validate filters
     for idx, filt in enumerate(config.get("filters") or []):
@@ -284,11 +267,11 @@ def validate_config(config: PipelineConfig) -> None:
             if "title" not in notify:
                 msg = f"{ctx}: notify block requires 'title'"
                 raise ValueError(msg)
-        if "podly" in filt:
-            for key in filt["podly"]:
-                if key not in valid_podly_keys:
-                    msg = f"{ctx}: podly unknown key {key!r}"
-                    raise ValueError(msg)
+        valid_filter_keys = {"match", "reason", "action", "llm_check", "notify"}
+        for key in filt:
+            if key not in valid_filter_keys:
+                msg = f"{ctx}: unknown key {key!r}"
+                raise ValueError(msg)
         if "llm_check" in filt and not filt["llm_check"]:
             msg = f"{ctx}: 'llm_check' must be a non-empty string"
             raise ValueError(msg)
@@ -351,7 +334,7 @@ def validate_config(config: PipelineConfig) -> None:
 
 
 def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
-    """Check for skip or podly rules that shadow later rules with overlapping match criteria.
+    """Check for terminal (skip / podly_process) rules that shadow later rules with overlapping match criteria.
 
     Returns:
         List of error messages (empty if no problems).
@@ -360,7 +343,7 @@ def validate_rule_ordering(filters: list[FilterRule]) -> list[str]:
     errors: list[str] = []
     for i, rule_a in enumerate(filters):
         action_a = rule_a.get("action", "skip")
-        if action_a not in {"skip", "podly_process", "podly"} and not rule_a.get("podly_process"):
+        if action_a not in TERMINAL_ACTIONS:
             continue
         match_a = rule_a["match"]
         for j in range(i + 1, len(filters)):
@@ -541,15 +524,56 @@ def _footnote_aside(number: str, note: str) -> str:
     return f"{ASIDE_MARKER}Footnote {number}: {text}"
 
 
+_SENTENCE_END_RE = re.compile(r"[.!?][\"'\u201d\u2019)\]]*(?=\s|$)|\n\s*\n")
+# Text that already ends a sentence (a marker placed after the period: "done.[1]").
+_ENDS_SENTENCE_RE = re.compile(r"[.!?][\"'\u201d\u2019)\]]*$")
+# A period that ends an abbreviation ("et al.", "e.g.", "U.S.") rather than a sentence.
+_ABBREVIATION_END_RE = re.compile(
+    r"(?:\b(?:al|etc|vs|cf|e\.g|i\.e|mr|mrs|ms|dr|st|jr|sr|inc|co|no|fig|approx)|(?<![A-Za-z])(?:[A-Za-z]\.){1,}[A-Za-z])\.$",
+    re.IGNORECASE,
+)
+
+
+def _is_abbreviation(body: str, end: int) -> bool:
+    """Whether the terminal punctuation just before ``end`` closes an abbreviation.
+
+    Returns:
+        True if ``body[:end]`` (ignoring closing quotes/brackets) ends in a known abbreviation.
+
+    """
+    return bool(_ABBREVIATION_END_RE.search(body[:end].rstrip("\"'\u201d\u2019)]")))
+
+
+def _sentence_end(body: str, pos: int) -> int:
+    """Find where the sentence containing ``pos`` ends.
+
+    A position right after terminal punctuation (the usual "sentence.[1]" layout) is
+    already a sentence end. Periods closing abbreviations ("et al.", "U.S.") are not.
+
+    Returns:
+        The index just past the sentence's terminal punctuation (or the paragraph break /
+        end of text when there is none).
+
+    """
+    if _ENDS_SENTENCE_RE.search(body, 0, pos) and not _is_abbreviation(body, pos):
+        return pos
+    for match in _SENTENCE_END_RE.finditer(body, pos):
+        if match.group().startswith("\n"):
+            return match.start()
+        if not _is_abbreviation(body, match.end()):
+            return match.end()
+    return len(body)
+
+
 def relocate_footnotes(text: str) -> tuple[str, int]:
     """Move ``[n]`` footnote definitions to an aside at their reference point.
 
     Footnote definitions are paragraphs whose text starts with ``[n]`` (as some
     newsletters format their footnotes). Each is spliced in at its inline ``[n]``
-    reference as its own ``ASIDE_MARKER`` paragraph, so the multi-voice renderer
+    reference's sentence as its own ``ASIDE_MARKER`` paragraph, so the multi-voice renderer
     reads it in the distinct aside voice (single-voice paths strip the marker and
-    read it as plain narration). Markers sit at sentence boundaries in the source,
-    so the aside lands between sentences. Definitions with no inline reference are
+    read it as plain narration). A marker mid-sentence defers the aside to the end of
+    that sentence, so it always lands between sentences. Definitions with no inline reference are
     appended at the end, also as asides. A no-op when the text has no such footnote
     structure.
 
@@ -580,7 +604,12 @@ def relocate_footnotes(text: str) -> tuple[str, int]:
             # No inline reference — keep the definition rather than lose content.
             body = body.rstrip() + f"\n\n{aside}"
             continue
-        body = body[:index] + f"\n\n{aside}\n\n" + body[index + len(marker) :]
+        # Remove the marker, then place the aside at the end of the sentence that cited
+        # it, so a mid-sentence reference ("Smith[1], who…") doesn't split the sentence.
+        body = body[:index] + body[index + len(marker) :]
+        end = _sentence_end(body, index)
+        rest = body[end:].lstrip()
+        body = body[:end].rstrip() + f"\n\n{aside}" + (f"\n\n{rest}" if rest else "")
         # Drop any further bare references to the same footnote.
         body = body.replace(marker, "")
         relocated += 1
@@ -732,28 +761,14 @@ def apply_general_cleaning(
         The cleaned text.
 
     """
-    gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
-    overrides: list[CleaningOverride] = gc_config.get("overrides") or []
 
     def is_enabled(key: str) -> bool:
-        # Structural-extractor output needs none of the plain-text repair steps.
-        if metadata.get("extraction") == "structured" and key in STRUCTURED_ONLY_SKIP:
-            return False
-        # Check per-source overrides first
-        for override in overrides:
-            match_val = override.get("match")
-            if isinstance(match_val, dict) and evaluate_match(match_val, metadata) and key in override:  # pyright: ignore[reportUnknownArgumentType]
-                return bool(override[key])
-        # Then global config
-        if key in gc_config:
-            return bool(gc_config[key])  # pyright: ignore[reportUnknownArgumentType]
-        # All cleaning steps except unwrap_hard_wraps are enabled by default
-        return key != "unwrap_hard_wraps"
+        return is_cleaning_step_enabled(key, metadata, config)
 
     def count_and_sub(pattern: str, replacement: str, text: str, key: str, flags: int = 0) -> str:
         matches = len(re.findall(pattern, text, flags=flags))
         if matches > 0:
-            stats[key] = {"matches": matches}
+            stats[key] = {"matches": int(stats.get(key, {}).get("matches", 0)) + matches}
         return re.sub(pattern, replacement, text, flags=flags)
 
     result: str = text
@@ -804,11 +819,21 @@ def apply_general_cleaning(
             "legal_bracket_unwrap",
         )
 
-    # Triple dash / divider removal (ASCII, unicode em/en-dashes, asterisks, and spaced variants)
+    # Triple dash / divider removal. Only whole-line dividers are deleted (ASCII, em/en
+    # dashes, asterisks, and spaced variants); inside a line, "---" is an em-dash stand-in
+    # ("5---4") and is spoken as a dash, and a ***wrapper*** is unwrapped. Runs of
+    # asterisks glued to a word ("f***") are censored words and are left alone.
     if is_enabled("triple_dash_removal"):
         result = count_and_sub(
-            r"(?m)^[ \t]*[-*\u2014\u2013]{3,}[ \t]*$|---+|[\u2014\u2013*]{3,}",
+            r"(?m)^[ \t]*[-*\u2014\u2013]{3,}[ \t]*$",
             "",
+            result,
+            "triple_dash_removal",
+        )
+        result = count_and_sub(r"[ \t]*-{3,}[ \t]*", " \u2014 ", result, "triple_dash_removal")
+        result = count_and_sub(
+            r"(?<![\w*])\*{3,}(?=\S)([^*\n]+?)(?<=\S)\*{3,}(?![\w*])",
+            r"\1",
             result,
             "triple_dash_removal",
         )
@@ -885,6 +910,31 @@ def apply_general_cleaning(
     return result
 
 
+def is_cleaning_step_enabled(key: str, metadata: dict[str, str], config: PipelineConfig) -> bool:
+    """Resolve whether a general-cleaning step runs for this file.
+
+    Precedence: structured-extraction skip list, then the first matching per-source
+    override that names the step, then the global setting, then the default (every
+    step except ``unwrap_hard_wraps`` is on).
+
+    Returns:
+        True if the step should run.
+
+    """
+    # Structural-extractor output needs none of the plain-text repair steps.
+    if metadata.get("extraction") == "structured" and key in STRUCTURED_ONLY_SKIP:
+        return False
+    gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
+    overrides: list[CleaningOverride] = gc_config.get("overrides") or []
+    for override in overrides:
+        match_val = override.get("match")
+        if isinstance(match_val, dict) and evaluate_match(match_val, metadata) and key in override:  # pyright: ignore[reportUnknownArgumentType]
+            return bool(override[key])
+    if key in gc_config:
+        return bool(gc_config[key])  # pyright: ignore[reportUnknownArgumentType]
+    return key != "unwrap_hard_wraps"
+
+
 def apply_end_of_line_punctuation(
     text: str,
     metadata: dict[str, str],
@@ -901,20 +951,8 @@ def apply_end_of_line_punctuation(
 
     """
     # Future architecture item: Replace end-of-line period insertion with explicit SSML <break> tags (see PUNCHLIST.md)
-    gc_config = config.get("general_cleaning") or GeneralCleaningConfig()
-    overrides: list[CleaningOverride] = gc_config.get("overrides") or []
-    for override in overrides:
-        match_val = override.get("match")
-        if (
-            isinstance(match_val, dict)
-            and evaluate_match(match_val, metadata)  # pyright: ignore[reportUnknownArgumentType]
-            and "end_of_line_punctuation" in override
-            and not bool(override["end_of_line_punctuation"])
-        ):
-            return text
-    if "end_of_line_punctuation" in gc_config and not bool(gc_config["end_of_line_punctuation"]):
+    if not is_cleaning_step_enabled("end_of_line_punctuation", metadata, config):
         return text
-
     stats["end_of_line_punctuation"] = {"applied": True}
     return re.sub(r"(\w)\s*(\r\n|\r|\n)", r"\1.\2", text)
 
@@ -1175,25 +1213,26 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
             )
             continue
 
-        if action in {"podly_process", "podly"} or filt.get("podly_process"):
-            rule_podly: PodlyConfig = filt.get("podly") or {}
-            global_podly: PodlyConfig = config.get("podly") or {}
-            podly_url: str | None = rule_podly.get("url") or global_podly.get("url")
-            podly_user: str | None = rule_podly.get("username") or global_podly.get("username")
-            podly_pwd: str | None = rule_podly.get("password") or global_podly.get("password")
-
+        if action == "podly_process":
+            # Podly URL/credentials come from PODLY_URL / PODLY_USERNAME / PODLY_PASSWORD.
             logging.info("Enabling episode for processing in Podly directly: %s", filename)
-            _ = enable_post_in_podly(
+            enabled = enable_post_in_podly(
                 guid=metadata.get("guid"),
                 download_url=metadata.get("source_url"),
                 title=metadata.get("title"),
                 feed_name=metadata.get("from"),
-                podly_url=podly_url,
-                username=podly_user,
-                password=podly_pwd,
             )
             skip_file = True
             filter_reason = reason
+            if not enabled:
+                # The file is still filtered (TTS would be wrong for it), so say so loudly
+                # instead of recording a success reason for an episode Podly never got.
+                filter_reason = f"{reason} [Podly enable FAILED — enable it manually]"
+                send_gotify_notification(
+                    title="Podly enable failed",
+                    message=f"{filename}\n\n{metadata.get('title', '')}\n\nEnable it in Podly manually.",
+                    priority=8,
+                )
             break
 
         # Remaining case is skip (notify already handled above)

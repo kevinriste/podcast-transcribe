@@ -14,17 +14,20 @@ import logging
 import operator
 import pathlib
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TypedDict
 
 import yaml
+from google import genai
 from google.cloud import texttospeech
 from google.genai import types as genai_types
 from podcast_shared import (
     apply_id3_tags,
     generate_summary,
     get_gemini_client,
+    is_json_object,
     pub_date_from_filename,
     send_gotify_notification,
     set_file_pub_date,
@@ -35,6 +38,9 @@ from pydub import AudioSegment
 from multivoice import (
     DEFAULT_NARRATOR_VOICE,
     DEFAULT_QUOTE_POOL,
+    TTS_RETRY,
+    TTS_TIMEOUT,
+    is_tts_outage,
     parse_segments,
     plan_article_utterances,
     plan_utterances,
@@ -49,6 +55,11 @@ final_output_dir = "../dropcaster-docker/audio"
 batch_pending_dir = "batch-pending"
 narrator_config_file = "narrators.yaml"
 stats_dir = "stats"
+# Files that keep failing for reasons other than a TTS outage are moved here after
+# MAX_STRIKES runs, so one bad file doesn't alert every 20 minutes forever.
+failed_dir = "tts-failed"
+strikes_file = "tts-strikes.json"
+MAX_STRIKES = 3
 
 # --- Feed routing (two feeds) -------------------------------------------------
 # The optional "evergreen" feed collects long-form/backlog episodes. It lives in
@@ -335,6 +346,8 @@ def synthesize_wavenet(content_text: str) -> list[AudioSegment]:
                 "voice": voice,
                 "audio_config": audio_config,
             },
+            retry=TTS_RETRY,
+            timeout=TTS_TIMEOUT,
         )
         segments.append(AudioSegment.from_mp3(io.BytesIO(response.audio_content)))
     return segments
@@ -464,39 +477,61 @@ def record_usage_stats(name: str, state: BatchState, decoded: DecodedBatch) -> N
     )
 
 
-def collect_batch_jobs() -> None:
-    """Poll pending Gemini batch jobs; finalize finished ones, fall back to Wavenet on failure."""
+def collect_batch_jobs() -> list[tuple[pathlib.Path, Exception]]:
+    """Poll pending Gemini batch jobs; finalize finished ones, fall back to Wavenet on failure.
+
+    Each job is handled on its own, so one broken job doesn't hold up the others. On a
+    service outage the remaining jobs are left for the next run.
+
+    Returns:
+        (state file, error) for each job that raised; its files are left in place.
+
+    """
     pending_dir = pathlib.Path(batch_pending_dir)
     state_files = sorted(pending_dir.glob("*.json"))
     if not state_files:
-        return
+        return []
     client = get_gemini_client()
+    failed: list[tuple[pathlib.Path, Exception]] = []
     for state_path in state_files:
-        state: BatchState = json.loads(state_path.read_text(encoding="utf-8")) or {}
-        job_name = state.get("job_name", "")
-        held_txt = pending_dir / state.get("txt_file", "")
-        job = client.batches.get(name=job_name)
-        if job.state in BATCH_JOB_RUNNING_STATES:
-            logging.info("Batch job %s still %s", job_name, job.state)
-            continue
-        metadata, content_text = split_metadata(held_txt.read_text(encoding="utf-8"))
-        name = held_txt.stem
-        segments: list[AudioSegment] | None = None
-        if job.state == genai_types.JobState.JOB_STATE_SUCCEEDED:
-            decoded = decode_batch_audio(job)
-            if decoded is not None:
-                segments = decoded.segments
-                record_usage_stats(name, state, decoded)
-        if segments is None:
-            logging.error("Batch job %s ended in state %s; falling back to Wavenet", job_name, job.state)
-            send_gotify_notification(
-                "TTS batch job failed",
-                f"{name}: job {job_name} ended in state {job.state}; falling back to Wavenet.",
-            )
-            segments = synthesize_wavenet(content_text)
-        finalize_episode(name, metadata, content_text, segments)
-        held_txt.unlink()
-        state_path.unlink()
+        try:
+            _collect_batch_job(client, pending_dir, state_path)
+        except Exception as exc:
+            logging.exception("Collecting batch job %s failed; leaving it for the next run", state_path.name)
+            failed.append((state_path, exc))
+            if is_tts_outage(exc):
+                logging.exception("TTS service appears to be down; leaving the remaining batch jobs for the next run")
+                break
+    return failed
+
+
+def _collect_batch_job(client: genai.Client, pending_dir: pathlib.Path, state_path: pathlib.Path) -> None:
+    """Finalize one pending batch job if it has finished."""
+    state: BatchState = json.loads(state_path.read_text(encoding="utf-8")) or {}
+    job_name = state.get("job_name", "")
+    held_txt = pending_dir / state.get("txt_file", "")
+    job = client.batches.get(name=job_name)
+    if job.state in BATCH_JOB_RUNNING_STATES:
+        logging.info("Batch job %s still %s", job_name, job.state)
+        return
+    metadata, content_text = split_metadata(held_txt.read_text(encoding="utf-8"))
+    name = held_txt.stem
+    segments: list[AudioSegment] | None = None
+    if job.state == genai_types.JobState.JOB_STATE_SUCCEEDED:
+        decoded = decode_batch_audio(job)
+        if decoded is not None:
+            segments = decoded.segments
+            record_usage_stats(name, state, decoded)
+    if segments is None:
+        logging.error("Batch job %s ended in state %s; falling back to Wavenet", job_name, job.state)
+        send_gotify_notification(
+            "TTS batch job failed",
+            f"{name}: job {job_name} ended in state {job.state}; falling back to Wavenet.",
+        )
+        segments = synthesize_wavenet(content_text)
+    finalize_episode(name, metadata, content_text, segments)
+    held_txt.unlink()
+    state_path.unlink()
 
 
 def load_evergreen_routing() -> EvergreenRouting:
@@ -678,7 +713,31 @@ def finalize_episode(
     output_filename = re.sub(r" {2,}", " ", output_filename)  # collapse gaps when date_prefix is empty
 
     logging.info("Exporting %s", output_filename)
-    _ = audio.export(output_filename, format="mp3")
+    # Build the episode under a non-.mp3 name and rename it into place only once it is
+    # tagged and dated, so a failure part-way never leaves a half-finished episode in the
+    # feed directory (Dropcaster runs even when a TTS file fails).
+    partial_path = pathlib.Path(f"{output_filename}.partial")
+    try:
+        _ = audio.export(partial_path, format="mp3")
+        _tag_and_date(partial_path, output_filename, metadata, name, description, annotation)
+        _ = partial_path.replace(output_filename)
+    except BaseException:
+        partial_path.unlink(missing_ok=True)
+        raise
+
+
+def _tag_and_date(
+    path: pathlib.Path,
+    output_filename: str,
+    metadata: dict[str, str],
+    name: str,
+    description: str,
+    annotation: str,
+) -> None:
+    """Write ID3 tags and the publication mtime to a freshly exported episode file."""
+    meta_from = metadata.get("from", "").strip()
+    meta_title = metadata.get("title", "").strip()
+    meta_source_url = metadata.get("source_url", "").strip()
     file_title = pathlib.Path(output_filename).stem
     file_title = re.sub(r"-\d{8}$", "", file_title)
     if meta_from and meta_title:
@@ -692,7 +751,7 @@ def finalize_episode(
         title_for_tag = meta_title or file_title
     if annotation:
         title_for_tag = f"{title_for_tag} [{annotation}]"
-    apply_id3_tags(output_filename, title=title_for_tag, description=description, source_url=meta_source_url)
+    apply_id3_tags(str(path), title=title_for_tag, description=description, source_url=meta_source_url)
 
     # Set mtime so Dropcaster orders episodes by original receipt date
     # (its ID3-TRDA path is unusable via mutagen, so it falls back to file mtime).
@@ -700,7 +759,7 @@ def finalize_episode(
     # YYYYMMDD-HHMMSS prefix, else leave the export time (≈ render time).
     pub_date = parse_pub_date(metadata) or pub_date_from_filename(name)
     if pub_date is not None:
-        set_file_pub_date(output_filename, pub_date)
+        set_file_pub_date(str(path), pub_date)
 
 
 def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRule]) -> None:
@@ -764,13 +823,120 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
     incoming_path.unlink()
 
 
+def _load_strikes() -> dict[str, int]:
+    try:
+        raw: object = json.loads(pathlib.Path(strikes_file).read_text(encoding="utf-8"))  # pyright: ignore[reportAny]  (JSON boundary; narrowed below)
+    except (OSError, ValueError):
+        return {}
+    if not is_json_object(raw):
+        return {}
+    return {k: v for k, v in raw.items() if isinstance(v, int)}
+
+
+def _save_strikes(strikes: dict[str, int]) -> None:
+    path = pathlib.Path(strikes_file)
+    if strikes:
+        _ = path.write_text(json.dumps(strikes, indent=2), encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _strike(strikes: dict[str, int], name: str, files: list[pathlib.Path]) -> None:
+    """Count a non-outage failure; after MAX_STRIKES, move ``files`` to ``failed_dir`` and alert."""
+    strikes[name] = strikes.get(name, 0) + 1
+    if strikes[name] < MAX_STRIKES:
+        return
+    dest = pathlib.Path(failed_dir)
+    dest.mkdir(exist_ok=True)
+    for path in files:
+        if path.exists():
+            _ = shutil.move(path, dest / path.name)
+    del strikes[name]
+    logging.error("%s failed %d runs in a row; moved to %s", name, MAX_STRIKES, dest)
+    send_gotify_notification(
+        "TTS gave up on a file",
+        f"{name} failed {MAX_STRIKES} runs in a row and was moved to text-to-speech/{failed_dir}/. See the log for the error.",
+    )
+
+
+def _held_text_files(state_path: pathlib.Path) -> list[pathlib.Path]:
+    """Find the text file a batch state file holds.
+
+    Returns:
+        A one-element list, or empty if the state file can't be parsed.
+
+    """
+    try:
+        raw: object = json.loads(state_path.read_text(encoding="utf-8"))  # pyright: ignore[reportAny]  (JSON boundary; narrowed below)
+    except (OSError, ValueError):
+        return []
+    txt = raw.get("txt_file") if is_json_object(raw) else None
+    return [state_path.parent / txt] if isinstance(txt, str) and txt else []
+
+
+def _remove_stale_partials() -> None:
+    """Delete ``*.partial`` exports left by a run that was killed mid-export.
+
+    Only files untouched for an hour are removed, so an export in progress outside the run
+    lock (e.g. a manual audition.py) is left alone.
+    """
+    cutoff = datetime.now(tz=UTC).timestamp() - 3600
+    for path in pathlib.Path(final_output_dir).rglob("*.partial"):
+        if path.stat().st_mtime < cutoff:
+            logging.warning("Removing stale partial export %s", path)
+            path.unlink(missing_ok=True)
+
+
 def process_files() -> None:
-    """Collect finished Gemini batch jobs, then process all cleaned text files."""
+    """Collect finished Gemini batch jobs, then process all cleaned text files.
+
+    One failing file never blocks the rest (or the feed publish that follows); it stays put
+    and the next run retries it. If Google TTS itself is down, the remaining files are left
+    for the next run rather than each waiting out its own retries. A file that fails
+    ``MAX_STRIKES`` runs in a row for any other reason is moved to ``failed_dir``.
+
+    Raises:
+        RuntimeError: If anything failed (after everything else was processed).
+
+    """
+    _remove_stale_partials()
     rules = load_narrator_rules()
-    collect_batch_jobs()
+    strikes = _load_strikes()
+    failed: list[str] = []
+    try:
+        failed_jobs = collect_batch_jobs()
+    except Exception:
+        logging.exception("Could not poll Gemini batch jobs; will retry next run")
+        failed_jobs = []
+        failed.append("batch-pending/")
+    failed_job_names = {state_path.name for state_path, _exc in failed_jobs}
+    for key in [k for k in strikes if k.endswith(".json") and k not in failed_job_names]:
+        del strikes[key]  # the job has since been collected (or removed)
+    for state_path, exc in failed_jobs:
+        failed.append(state_path.name)
+        if not is_tts_outage(exc):
+            _strike(strikes, state_path.name, [state_path, *_held_text_files(state_path)])
     txt_files = sorted(pathlib.Path(input_dir).glob("*.txt"))
-    for f in txt_files:
-        text_to_speech(f, rules)
+    for i, f in enumerate(txt_files):
+        try:
+            text_to_speech(f, rules)
+        except Exception as exc:
+            logging.exception("TTS failed for %s; leaving it for the next run", f.name)
+            failed.append(f.name)
+            if is_tts_outage(exc):
+                remaining = len(txt_files) - i - 1
+                if remaining:
+                    logging.exception(
+                        "Google TTS appears to be down; leaving %d more file(s) for the next run", remaining
+                    )
+                break
+            _strike(strikes, f.name, [f])
+        else:
+            _ = strikes.pop(f.name, None)
+    _save_strikes(strikes)
+    if failed:
+        msg = f"TTS failed for {len(failed)} item(s): {', '.join(failed)}"
+        raise RuntimeError(msg)
 
 
 if __name__ == "__main__":

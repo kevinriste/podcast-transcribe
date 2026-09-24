@@ -54,7 +54,10 @@ cd "$REPO_DIR/text-to-speech"
 echo "Main--Install Google Text to Speech dependencies"
 uv sync
 echo "Main--Run Google Text to Speech script"
-uv run python3 text_to_speech.py
+# A TTS failure must not block publishing the episodes that did succeed: remember it,
+# regenerate the feeds, then fail the run at the end so the Gotify alert still fires.
+tts_status=0
+uv run python3 text_to_speech.py || tts_status=$?
 cd "$REPO_DIR/dropcaster-docker"
 # Retention window for the topical feed, in weeks (default 8). Older audio is
 # moved to ./audio-archive. Override via PODCAST_RETENTION_WEEKS in .env.
@@ -74,6 +77,9 @@ else
     oldHash=""
 fi
 if [ "$newHash" != "$oldHash" ]; then
+    # An empty domain would publish enclosure URLs like "https:///x.mp3"; fail the run
+    # instead (the old feed and hash stay in place, so the next run retries).
+    : "${PODCAST_DOMAIN_PRIMARY:?PODCAST_DOMAIN_PRIMARY is unset; refusing to regenerate feeds}"
     echo "Main--Run Dropcaster"
     start=$(date +%s)
     docker compose down --remove-orphans
@@ -87,5 +93,9 @@ if [ "$newHash" != "$oldHash" ]; then
     ls -lhaAgGR --block-size=1 --time-style=+%s ./audio | sed -re 's/^[^ ]* //' | sed -re 's/^[^ ]* //' | tail -n +3 | sha1sum > ./audio-hash.txt
     end=$(date +%s)
     printf 'Dropcaster processing time: %.2f minutes\n' $(echo "($end-$start)/60.0" | bc -l)
+fi
+if [ "$tts_status" -ne 0 ]; then
+    echo "Main--Text to Speech failed (exit $tts_status); feeds were still regenerated"
+    exit "$tts_status"
 fi
 echo "Main--End Script (success)"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from podcast_shared.describe import DECORATIVE_SENTINEL
 from podcast_shared.structural_extract import (
     ASIDE_MARKER,
     BLOCKQUOTE_MARKER,
@@ -22,12 +23,21 @@ _MARKER_RE = re.compile(re.escape(EMBED_MARKER_PREFIX) + r"(\d+)" + re.escape(EM
 # Placeholder alt values (e.g. Substack's generic alt="Image") that carry no real
 # description — never speak them as the image's content.
 _GENERIC_IMAGE_ALTS = frozenset({"image", "photo", "picture", "img"})
-# Descriptions matching platform chrome, divider bars, sponsor/app banners, or ad tracking pixels.
-# When vision describes such chrome, drop the aside entirely so it is never voiced.
-_CHROME_IMAGE_DESCRIPTION_RE = re.compile(
-    r"\b(?:logo|icon|divider|adchoices|play button)\b|solid (?:black|white) .*rectangle|horizontal line|get the app|start writing|banner reads",
-    re.IGNORECASE,
-)
+# Image chrome is recognised by the vision model itself (describe.DECORATIVE_SENTINEL):
+# keyword-matching free-form descriptions can't tell "a logo" from "a photo of a storefront
+# with a logo" and silently dropped real content. The phrases below are backstops for
+# platform chrome that is unambiguous wherever it appears.
+_CHROME_PHRASE_RE = re.compile(r"\b(?:adchoices|get the app|start writing)\b", re.IGNORECASE)
+
+
+def _is_chrome_description(desc: str) -> bool:
+    """Whether an image description marks the image as page chrome (never voiced).
+
+    Returns:
+        True for the vision model's decorative sentinel or an unambiguous chrome phrase.
+
+    """
+    return desc.strip().rstrip(".").upper() == DECORATIVE_SENTINEL or _CHROME_PHRASE_RE.search(desc) is not None
 
 
 def _render_own(block: Block) -> str:
@@ -47,7 +57,7 @@ def _render_own(block: Block) -> str:
         # "Image: Image." — treat such placeholder alts as no description.
         if not desc or desc.lower() in _GENERIC_IMAGE_ALTS:
             return "The author includes an image."
-        if _CHROME_IMAGE_DESCRIPTION_RE.search(desc):
+        if _is_chrome_description(desc):
             return ""
         desc = desc.rstrip()
         return f"Image: {desc}" if desc[-1:] in ".!?" else f"Image: {desc}."

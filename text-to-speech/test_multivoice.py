@@ -1,12 +1,17 @@
 """Segment parsing, utterance planning, and stable voice assignment."""
 
+import contextlib
 import logging
+from unittest.mock import patch
+
+from google.api_core.exceptions import InvalidArgument, ServiceUnavailable
 
 from multivoice import (
     ASIDE_MARKER,
     BLOCKQUOTE_MARKER,
     DEFAULT_NARRATOR_VOICE,
     DEFAULT_QUOTE_POOL,
+    TTS_RETRY,
     assign_voice,
     parse_segments,
     plan_article_utterances,
@@ -185,6 +190,45 @@ def check_strip_markers_removes_aside_marker() -> None:
         raise AssertionError(msg)
 
 
+def check_tts_retry_policy() -> None:
+    """Retry transient 503s from Google TTS, but not request errors.
+
+    Raises:
+        AssertionError: If a transient error is not retried or a bad request is.
+
+    """
+    calls: list[int] = []
+
+    def flaky() -> str:
+        calls.append(1)
+        if len(calls) < 3:
+            msg = "The service is currently unavailable."
+            raise ServiceUnavailable(msg)
+        return "audio"
+
+    def no_sleep(_seconds: float) -> None:
+        return None
+
+    with patch("time.sleep", new=no_sleep):
+        result = str(TTS_RETRY(flaky)())
+    if result != "audio" or len(calls) != 3:
+        msg = f"503 not retried: result={result!r}, calls={len(calls)}"
+        raise AssertionError(msg)
+
+    bad_calls: list[int] = []
+
+    def bad_request() -> str:
+        bad_calls.append(1)
+        msg = "bad voice"
+        raise InvalidArgument(msg)
+
+    with contextlib.suppress(InvalidArgument):
+        _ = TTS_RETRY(bad_request)()
+    if len(bad_calls) != 1:
+        msg = f"InvalidArgument should not be retried: calls={len(bad_calls)}"
+        raise AssertionError(msg)
+
+
 if __name__ == "__main__":
     check_parse()
     check_plan()
@@ -195,4 +239,5 @@ if __name__ == "__main__":
     check_aside_marker_becomes_aside_speaker()
     check_assign_voice_routes_aside()
     check_strip_markers_removes_aside_marker()
+    check_tts_retry_policy()
     logging.info("multivoice tests passed.")

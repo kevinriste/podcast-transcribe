@@ -6,9 +6,11 @@ import json
 import logging
 import os
 import time
-from typing import TypedDict
+import urllib.parse
 
 import requests
+
+from podcast_shared.json_narrow import is_json_array, is_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -32,25 +34,73 @@ def get_podly_config(
     return resolved_url, resolved_username, resolved_password
 
 
-class PodlyFeedSummary(TypedDict, total=False):
-    """Summary representation of a Podly feed."""
+def _get_json(session: requests.Session, url: str, timeout: float) -> object | None:
+    """GET ``url`` and decode its JSON body.
 
-    id: int
-    title: str
+    Returns:
+        The decoded JSON value, or None on a non-200 response or request/decode failure.
+
+    """
+    try:
+        res = session.get(url, timeout=timeout)
+        if res.status_code != 200:
+            logger.warning("Podly GET %s returned HTTP %s", url, res.status_code)
+            return None
+        decoded: object = json.loads(res.text)  # pyright: ignore[reportAny]  (JSON boundary; narrowed by callers)
+        return decoded
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Podly GET %s failed: %s", url, exc)
+        return None
 
 
-class PodlyPostSummary(TypedDict, total=False):
-    """Summary representation of a Podly post."""
+def _str_field(item: dict[str, object], key: str) -> str:
+    """Return ``item[key]`` when it is a string, else ''.
 
-    guid: str
-    download_url: str
-    title: str
+    Returns:
+        The string value or ''.
+
+    """
+    value = item.get(key)
+    return value if isinstance(value, str) else ""
 
 
-class PodlyFeedPostsResponse(TypedDict, total=False):
-    """Response payload for Podly feed posts query."""
+def _norm_title(title: str) -> str:
+    """Casefold and collapse whitespace so titles compare exactly but leniently.
 
-    items: list[PodlyPostSummary]
+    Returns:
+        The normalized title.
+
+    """
+    return " ".join(title.split()).casefold()
+
+
+def _feed_posts(session: requests.Session, base_url: str, feed_id: int, timeout: float) -> list[dict[str, object]]:
+    """Fetch one feed's posts (first page).
+
+    Returns:
+        The post dicts; empty when the request fails or the payload is malformed.
+
+    """
+    data = _get_json(session, f"{base_url}/api/feeds/{feed_id}/posts?page_size=50", timeout)
+    if not is_json_object(data):
+        return []
+    items = data.get("items")
+    if not is_json_array(items):
+        return []
+    return [item for item in items if is_json_object(item)]
+
+
+def _whitelist_url(base_url: str, guid: str) -> str:
+    """Build the whitelist endpoint URL, percent-encoding the GUID.
+
+    RSS GUIDs are often URLs; unencoded, a ``?`` or ``#`` would truncate the path. (A GUID
+    containing ``/`` still can't reach Podly's ``<string:>`` route, which is a server-side limit.)
+
+    Returns:
+        The endpoint URL.
+
+    """
+    return f"{base_url}/api/posts/{urllib.parse.quote(guid, safe='')}/whitelist"
 
 
 def _find_post_guid_in_feeds(
@@ -63,57 +113,47 @@ def _find_post_guid_in_feeds(
     feed_name: str | None = None,
     timeout: float = 15.0,
 ) -> str | None:
-    """Search Podly feeds and their posts for a matching episode GUID.
+    """Search Podly's posts for the episode, strongest identifier first.
+
+    Candidates come from the feeds whose title contains ``feed_name``; if none match, every
+    feed is searched but only by GUID or download URL. An exact (normalized) title match is
+    trusted only inside a name-matched feed, since episode titles repeat across shows.
+    Match order across *all* candidate posts: exact GUID, exact download URL, exact title.
 
     Returns:
         The matched episode GUID, or None if not found.
 
     """
-    try:
-        feeds_res = session.get(f"{base_url}/feeds", timeout=timeout)
-        if feeds_res.status_code != 200:
-            return None
-        feeds_data: list[PodlyFeedSummary] = json.loads(feeds_res.text)  # pyright: ignore[reportAny]
-    except (requests.RequestException, ValueError) as exc:
-        logger.warning("Failed to fetch feeds from Podly at %s: %s", base_url, exc)
+    feeds = _get_json(session, f"{base_url}/feeds", timeout)
+    if not is_json_array(feeds):
+        logger.warning("Podly /feeds returned an unexpected payload; cannot search for episode")
         return None
+    feed_ids: list[tuple[int, str]] = []
+    for feed in feeds:
+        if is_json_object(feed):
+            feed_id = feed.get("id")
+            if isinstance(feed_id, int):
+                feed_ids.append((feed_id, _str_field(feed, "title")))
 
-    target_feeds: list[PodlyFeedSummary] = []
-    other_feeds: list[PodlyFeedSummary] = []
-    for feed_item in feeds_data:
-        f_title = feed_item.get("title") or ""
-        if feed_name and feed_name.lower() in f_title.lower():
-            target_feeds.append(feed_item)
-        else:
-            other_feeds.append(feed_item)
+    wanted = feed_name.casefold() if feed_name else ""
+    named = [fid for fid, ftitle in feed_ids if wanted and wanted in ftitle.casefold()]
+    posts = [
+        post for fid in (named or [fid for fid, _ in feed_ids]) for post in _feed_posts(session, base_url, fid, timeout)
+    ]
 
-    candidate_feeds = target_feeds or (target_feeds + other_feeds)
-    normalized_title = title.strip().lower() if title else ""
-
-    for feed_info in candidate_feeds:
-        feed_id = feed_info.get("id")
-        if feed_id is None:
+    matchers: list[tuple[str, str]] = [("guid", guid or ""), ("download_url", download_url or "")]
+    if named:
+        matchers.append(("title", _norm_title(title or "")))
+    for key, target in matchers:
+        if not target:
             continue
-        try:
-            posts_res = session.get(f"{base_url}/api/feeds/{feed_id}/posts?page_size=50", timeout=timeout)
-            if posts_res.status_code != 200:
-                continue
-            posts_data: PodlyFeedPostsResponse = json.loads(posts_res.text)  # pyright: ignore[reportAny]
-            posts_items = posts_data.get("items") or []
-            for post_item in posts_items:
-                p_guid = post_item.get("guid") or ""
-                p_url = post_item.get("download_url") or ""
-                p_title = (post_item.get("title") or "").strip().lower()
-
-                if guid and p_guid == guid:
-                    return p_guid
-                if download_url and p_url == download_url:
-                    return p_guid
-                if normalized_title and (normalized_title in p_title or p_title in normalized_title):
-                    return p_guid
-        except (requests.RequestException, ValueError) as exc:
-            logger.warning("Failed to query posts for feed %s in Podly: %s", feed_id, exc)
-
+        for post in posts:
+            value = _str_field(post, key)
+            if (_norm_title(value) if key == "title" else value) == target:
+                matched = _str_field(post, "guid")
+                if matched:
+                    logger.info("Matched Podly post by %s: %s", key, matched)
+                    return matched
     return None
 
 
@@ -167,7 +207,7 @@ def enable_post_in_podly(
     if target_guid:
         try:
             whitelist_res = session.post(
-                f"{base_url}/api/posts/{target_guid}/whitelist",
+                _whitelist_url(base_url, target_guid),
                 json={"whitelisted": True, "trigger_processing": True},
                 timeout=timeout,
             )
@@ -218,7 +258,7 @@ def enable_post_in_podly(
 
     try:
         whitelist_res = session.post(
-            f"{base_url}/api/posts/{discovered_guid}/whitelist",
+            _whitelist_url(base_url, discovered_guid),
             json={"whitelisted": True, "trigger_processing": True},
             timeout=timeout,
         )

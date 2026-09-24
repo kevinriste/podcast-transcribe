@@ -105,22 +105,33 @@ def test_render_image_generic_alt_is_not_a_description() -> None:
 
 
 def test_render_image_aside_drops_chrome_descriptions() -> None:
-    """Image descriptions matching chrome patterns render empty so serialize_flat skips them."""
+    """The vision DECORATIVE sentinel and unambiguous chrome phrases render empty."""
     chrome_descriptions = [
-        "The Facebook logo in blue and white.",
-        "An icon of an arrow pointing right.",
-        "A solid black rectangle divider.",
-        "A thin white horizontal line.",
+        "DECORATIVE",
+        "Decorative.",
+        " DECORATIVE\n",
         "An AdChoices logo banner.",
         "Start writing button in orange.",
         "Get the app on iPhone.",
-        "A play button overlay.",
-        "Banner reads: Subscribe to newsletter.",
     ]
     for desc in chrome_descriptions:
         out = render_block_aside(Block(type="image", payload={"description": desc}))
         if out:
             _fail(f"chrome description {desc!r} should render empty, got {out!r}")
+
+
+def test_render_image_aside_keeps_content_mentioning_chrome_words() -> None:
+    """Real content that merely mentions a logo, banner, or line is still voiced."""
+    content_descriptions = [
+        "Protesters hold a banner that reads 'Free Speech' outside parliament.",
+        "A line chart of CPI with a horizontal line at the 2% target.",
+        "A photo of the new Apple logo on a storefront.",
+        "A religious icon painted on a church wall.",
+    ]
+    for desc in content_descriptions:
+        out = render_block_aside(Block(type="image", payload={"description": desc}))
+        if not out.startswith("Image: "):
+            _fail(f"content description {desc!r} should be voiced, got {out!r}")
 
 
 def test_serialize_flat_marks_quotes_and_asides() -> None:
@@ -209,6 +220,7 @@ def run_tests() -> None:
     test_render_image_from_caption()
     test_render_image_generic_alt_is_not_a_description()
     test_render_image_aside_drops_chrome_descriptions()
+    test_render_image_aside_keeps_content_mentioning_chrome_words()
     test_image_no_double_period()
     test_render_video_audio_code()
     test_render_footnote_and_card()

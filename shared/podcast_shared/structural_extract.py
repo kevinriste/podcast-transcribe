@@ -11,7 +11,7 @@ import string
 from dataclasses import dataclass, field
 
 from bs4 import BeautifulSoup
-from bs4.element import Tag
+from bs4.element import CData, NavigableString, Tag
 
 
 @dataclass(slots=True)
@@ -129,6 +129,41 @@ _MAX_DECORATIVE_PCT_WIDTH = 25
 _PCT_WIDTH_RE = re.compile(r"(\d+)%")
 
 
+# Characters that attach to the preceding / following text node without a space.
+_ATTACH_LEFT = frozenset(".,;:!?%)]}'\u201d\u2019\u2026")
+_ATTACH_RIGHT = frozenset("([{\u201c\u2018$")
+# The string types get_text() reads (exact types: excludes comments, doctypes, and the
+# NavigableString subclasses holding <style>/<script>/<template> contents).
+_SPOKEN_STRING_TYPES = (NavigableString, CData)
+
+
+def _spoken_text(el: Tag) -> str:
+    """Flatten an element's text, spacing text nodes the way a reader sees them.
+
+    ``get_text(" ")`` puts a space between *every* pair of text nodes, which keeps
+    adjacent links from fusing ("<a>foo</a><a>bar</a>") but also detaches punctuation
+    from inline markup (a link followed by a possessive or comma, or curly quotes around
+    an emphasised title, come out as "Acme 's" / "Main Street ,"). Here a space is inserted
+    at a node boundary only when neither side already has whitespace and the boundary isn't
+    punctuation that hugs its neighbour.
+
+    Returns:
+        The element's text with whitespace collapsed.
+
+    """
+    out = ""
+    for node in el.descendants:
+        if type(node) not in _SPOKEN_STRING_TYPES:
+            continue
+        text = str(node)
+        if not text:
+            continue
+        if out and not (out[-1].isspace() or text[0].isspace() or text[0] in _ATTACH_LEFT or out[-1] in _ATTACH_RIGHT):
+            out += " "
+        out += text
+    return " ".join(out.split())
+
+
 _WIDTH_DIGITS_RE = re.compile(r"^\s*(\d+)")
 
 
@@ -151,8 +186,6 @@ def _is_decorative(el: Tag) -> bool:
     width_match = _WIDTH_DIGITS_RE.match(width)
     if width_match is not None:
         return int(width_match.group(1)) < _MIN_CONTENT_IMG_WIDTH  # icon/logo/emoji, not content
-    if str(el.get("alt") or "").strip():
-        return False
     return False
 
 
@@ -172,7 +205,7 @@ def extract_image(el: Tag) -> Block:
     caption = ""
     figcaption = el.find("figcaption")
     if isinstance(figcaption, Tag):
-        caption = " ".join(figcaption.get_text(" ").split())
+        caption = _spoken_text(figcaption)
     return Block(type="image", payload={"alt": alt, "caption": caption, "src": src})
 
 
@@ -280,9 +313,9 @@ def extract_footnote(el: Tag) -> Block | None:
     number = number_el.get_text(" ").strip() if isinstance(number_el, Tag) else ""
     content_el = el.find(class_="footnote-content")
     if isinstance(content_el, Tag):
-        text = " ".join(content_el.get_text(" ").split())
+        text = _spoken_text(content_el)
     else:
-        text = " ".join(el.get_text(" ").split())
+        text = _spoken_text(el)
         if number and text.startswith(number):
             text = text[len(number) :].strip()
     if not text:
@@ -346,7 +379,6 @@ _FALSE_HEADINGS: frozenset[str] = frozenset(
         "one more thing",
         "fun fact",
         "remember",
-        "state and city roundup",
     }
 )
 
@@ -376,6 +408,32 @@ def _is_paragraph_mostly_bold(el: Tag, text: str) -> bool:
     return bold_non_ws >= int(non_ws_len * 0.85)
 
 
+# Lowercase words allowed inside a commenter name ("Mary Queen of Scots").
+_NAME_CONNECTORS = frozenset({"of", "the", "de", "da", "van", "von", "del", "la", "le", "and", "bin", "al"})
+# A reader question has substance; "Name: OK." is a transcript speaker line, not a question.
+_MIN_QUESTION_WORDS = 5
+
+
+def _looks_like_commenter_name(name: str) -> bool:
+    """Whether a ``Label:`` prefix reads as a person/handle rather than a sentence-case label.
+
+    Names and handles capitalise each word ("Jane Reader", "Some Guy On The Internet")
+    or are a single handle token ("reader_42", "jdoe99"); editorial labels are sentence case
+    ("Bottom line", "Key takeaway"), so a lowercase non-connector word rules the prefix out.
+
+    Returns:
+        True when every word is capitalised, a handle, or a name connector.
+
+    """
+    words = name.split()
+    if len(words) == 1:
+        return True
+    return all(
+        word[0].isupper() or word[0].isdigit() or "_" in word or (i > 0 and word in _NAME_CONNECTORS)
+        for i, word in enumerate(words)
+    )
+
+
 def _is_question_lead(el: Tag, text: str) -> bool:
     """Check if a bold paragraph begins a reader question run.
 
@@ -396,8 +454,15 @@ def _is_question_lead(el: Tag, text: str) -> bool:
 
     m = _NAME_ATTR_RE.match(text)
     if m is not None:
-        name = m.group(1).strip().lower()
-        if name not in _FALSE_HEADINGS and _SECTION_HEADING_RE.match(name) is None:
+        raw_name = m.group(1).strip()
+        name = raw_name.lower()
+        body_words = len(text[m.end() - 1 :].split())
+        if (
+            name not in _FALSE_HEADINGS
+            and _SECTION_HEADING_RE.match(name) is None
+            and _looks_like_commenter_name(raw_name)
+            and body_words >= _MIN_QUESTION_WORDS
+        ):
             return True
 
     return False
@@ -490,7 +555,7 @@ def extract_blocks(region: Tag) -> list[Block]:
         ref_numbers = [r.get_text().translate(_SUPERSCRIPT).strip() for r in _footnote_refs(el)]
         for r in _footnote_refs(el):
             r.decompose()  # drop the superscript glyph so it is not read aloud
-        text = " ".join(el.get_text(" ").split())
+        text = _spoken_text(el)
         if not text or text == previous_text:
             continue
         previous_text = text

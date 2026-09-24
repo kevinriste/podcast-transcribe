@@ -392,7 +392,7 @@ def test_find_content_region_matched_signals_fallback() -> None:
     if not matched_bee:
         _fail("beehiiv container should report matched=True")
     region, matched_none = find_content_region_matched(
-        "<html><body><table><td>Bloomberg chrome</td></table></body></html>"
+        "<html><body><table><td>Publisher chrome</td></table></body></html>"
     )
     if matched_none:
         _fail("whole-doc fallback should report matched=False")
@@ -424,7 +424,7 @@ def test_extract_blocks_marks_mailbag_question_single_para() -> None:
     """A bold paragraph starting with a Substack comment link becomes a quote block."""
     html = (
         '<div class="body markup">'
-        '<p><strong><a href="https://www.slowboring.com/p/giving/comment/103630656">stieltjestransform:</a> '
+        '<p><strong><a href="https://example.substack.com/p/giving/comment/103630656">reader_one:</a> '
         "What should a moderate Democratic politician do in this environment?</strong></p>"
         "<p>I think the answer is straightforward.</p>"
         "</div>"
@@ -433,7 +433,7 @@ def test_extract_blocks_marks_mailbag_question_single_para() -> None:
     kinds = [(b.type, b.payload.get("text", "")) for b in blocks]
     if len(kinds) != 2:
         _fail(f"expected 2 blocks, got {len(kinds)}: {kinds}")
-    if kinds[0][0] != "quote" or "stieltjestransform:" not in kinds[0][1]:
+    if kinds[0][0] != "quote" or "reader_one:" not in kinds[0][1]:
         _fail(f"first block should be quote, got: {kinds[0]}")
     if kinds[1][0] != "text" or "straightforward" not in kinds[1][1]:
         _fail(f"second block should be text, got: {kinds[1]}")
@@ -443,7 +443,7 @@ def test_extract_blocks_marks_mailbag_question_multi_para() -> None:
     """Multi-paragraph reader questions are both marked as quotes when continuing."""
     html = (
         '<div class="body markup">'
-        '<p><strong><a href="https://www.slowboring.com/p/post/comment/123">Aaron:</a> '
+        '<p><strong><a href="https://example.substack.com/p/post/comment/123">Alex:</a> '
         "If California went 100% full statewide YIMBY tomorrow, what would happen?</strong></p>"
         "<p><strong>Or if they would never drop that low, what do you think is a reasonable level?</strong></p>"
         "<p>The real issue with California zoning is local control.</p>"
@@ -463,7 +463,7 @@ def test_extract_blocks_marks_mailbag_question_numbered_list() -> None:
     """Multi-paragraph reader question with numbered list continuations are all marked as quotes."""
     html = (
         '<div class="body markup">'
-        '<p><strong><a href="https://www.slowboring.com/p/post/comment/123">Wandering Lama:</a> '
+        '<p><strong><a href="https://example.substack.com/p/post/comment/123">Wandering Reader:</a> '
         "A couple of weeks ago you mentioned that if people wanted more CEOs to go to jail in America...</strong></p>"
         "<p><strong>1. Do you think it would be socially valuable for more C-level executives to go to jail?</strong></p>"
         "<p><strong>2. What reforms in particular would you like to see?</strong></p>"
@@ -480,8 +480,8 @@ def test_extract_blocks_does_not_steal_bold_author_reply() -> None:
     """A bold short author reply following a question is not stolen as a question continuation."""
     html = (
         '<div class="body markup">'
-        '<p><strong><a href="https://www.slowboring.com/p/post/comment/123">Max Haas:</a> '
-        "Can we get someone like MGP into leadership?</strong></p>"
+        '<p><strong><a href="https://example.substack.com/p/post/comment/123">Sam Park:</a> '
+        "Can we get someone like the governor into leadership?</strong></p>"
         "<p><strong>This is what I'm praying for, at least.</strong></p>"
         "<p>More seriously, the bench is thin.</p>"
         "</div>"
@@ -554,7 +554,7 @@ def test_extract_blocks_and_serialize_flat_mailbag() -> None:
     """Mailbag reader questions serialize with BLOCKQUOTE_MARKER for downstream multi-voice TTS."""
     html = (
         '<div class="body markup">'
-        '<p><strong><a href="https://www.slowboring.com/p/giving/comment/103630656">stieltjestransform:</a> '
+        '<p><strong><a href="https://example.substack.com/p/giving/comment/103630656">reader_one:</a> '
         "What should a moderate Democratic politician do in this environment?</strong></p>"
         "<p>I think the answer is straightforward.</p>"
         "</div>"
@@ -562,11 +562,41 @@ def test_extract_blocks_and_serialize_flat_mailbag() -> None:
     blocks = extract_blocks(find_content_region(html))
     flat = serialize_flat(blocks)
     expected = [
-        f"{BLOCKQUOTE_MARKER}stieltjestransform: What should a moderate Democratic politician do in this environment?",
+        f"{BLOCKQUOTE_MARKER}reader_one: What should a moderate Democratic politician do in this environment?",
         "I think the answer is straightforward.",
     ]
     if flat.split("\n\n") != expected:
         _fail(f"serialized mailbag text mismatch: {flat!r}")
+
+
+def test_extract_blocks_rejects_non_question_bold_leads() -> None:
+    """Bold 'Label: text' leads that are not reader questions stay narrative text."""
+    leads = [
+        # Sentence-case editorial labels: these were misread as reader questions before.
+        "Bottom line: The Fed will hike rates again next month.",
+        "Key takeaway: The market has already priced this in.",
+        # A transcript speaker line is too short to be a question.
+        "Jordan Lee: OK.",
+    ]
+    for lead in leads:
+        html = f'<div class="body markup"><p><strong>{lead}</strong></p><p>Body text here.</p></div>'
+        blocks = extract_blocks(find_content_region(html))
+        if blocks[0].type != "text":
+            _fail(f"{lead!r} was misclassified as a reader question: {blocks[0]}")
+
+
+def test_extract_blocks_inline_spacing() -> None:
+    """Inline tags join without spurious spaces before punctuation or inside quotes."""
+    html = (
+        '<div class="body markup"><p>At <a href="u">Acme</a>\u2019s site, \u201c<em>Matrix</em>\u201d '
+        "by <b>foo</b> <i>bar</i> near <a href='u'>Main Street</a>, then <a href='u'>Bob</a>'s "
+        "<em>gate</em>.<style>.x{color:red}</style></p></div>"
+    )
+    blocks = extract_blocks(find_content_region(html))
+    text = str(blocks[0].payload.get("text", ""))
+    expected = "At Acme\u2019s site, \u201cMatrix\u201d by foo bar near Main Street, then Bob's gate."
+    if text != expected:
+        _fail(f"inline spacing wrong: {text!r}")
 
 
 def run_tests() -> None:
@@ -589,6 +619,8 @@ def run_tests() -> None:
     test_extract_blocks_does_not_steal_bold_author_reply()
     test_extract_blocks_marks_name_attribution_without_comment_link()
     test_extract_blocks_ignores_bold_headings()
+    test_extract_blocks_rejects_non_question_bold_leads()
+    test_extract_blocks_inline_spacing()
     test_extract_blocks_ignores_unbold_comment_link()
     test_extract_blocks_ignores_citation_link_at_end()
     test_extract_blocks_and_serialize_flat_mailbag()

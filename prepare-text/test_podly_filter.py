@@ -1,158 +1,178 @@
-"""Tests for podly_process filter action and Podly integration in prepare_text."""
+"""Tests for the podly_process filter action in prepare_text (script-style)."""
 
 from __future__ import annotations
 
+import logging
 import pathlib
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import yaml
 
 import prepare_text as pt
 
+logging.basicConfig(level=logging.INFO)
 
-def _require(cond: bool, msg: str) -> None:  # noqa: FBT001
-    """Require condition to be true or raise AssertionError.
+_RAW = (
+    "META_FROM: Example Show\n"
+    "META_TITLE: Week 1 With A Guest\n"
+    "META_GUID: example-guid-456\n"
+    "META_SOURCE_URL: https://example.com/audio.mp3\n"
+    "META_SOURCE_NAME: Example Show\n"
+    "\n"
+    "Episode summary notes here."
+)
+
+
+def _fail(msg: str) -> None:
+    """Raise an AssertionError.
 
     Raises:
-        AssertionError: If cond is false.
+        AssertionError: Always.
 
     """
-    if not cond:
-        raise AssertionError(msg)
+    raise AssertionError(msg)
+
+
+def _config() -> pt.PipelineConfig:
+    return {
+        "filters": [
+            {
+                "match": {"from": {"contains": "Example Show"}, "title": {"contains": "Guest"}},
+                "action": "podly_process",
+                "reason": "Example Show guest episode",
+            },
+            {
+                "match": {"from": {"contains": "Example Show"}},
+                "action": "skip",
+                "reason": "Example Show general skip",
+            },
+        ],
+    }
 
 
 def test_validate_config_accepts_podly_action() -> None:
-    """Test validate_config allows podly_process and podly configuration."""
-    valid_cfg: pt.PipelineConfig = {
-        "filters": [
-            {
-                "match": {
-                    "from": {"contains": "Bill Simmons"},
-                    "title": {"contains": "Cousin Sal"},
-                },
-                "action": "podly_process",
-                "reason": "Bill Simmons Cousin Sal episode",
-                "podly": {
-                    "url": "https://podly.test",
-                    "username": "user",
-                    "password": "pwd",
-                },
-            },
-            {
-                "match": {
-                    "from": {"contains": "Bill Simmons"},
-                },
-                "action": "skip",
-                "reason": "Bill Simmons general skip",
-            },
-        ],
-    }
-    # Should not raise
-    pt.validate_config(valid_cfg)
-    errors = pt.validate_rule_ordering(valid_cfg["filters"])
-    _require(len(errors) == 0, f"Expected 0 ordering errors, got: {errors}")
+    """podly_process is a valid action and a specific-before-broad ordering is clean."""
+    cfg = _config()
+    pt.validate_config(cfg)
+    errors = pt.validate_rule_ordering(cfg.get("filters", []))
+    if errors:
+        _fail(f"Expected 0 ordering errors, got: {errors}")
+
+
+def test_validate_config_rejects_unknown_filter_key() -> None:
+    """Retired keys like a per-rule podly block (or typos) are rejected, not ignored."""
+    for extra in ("podly", "podly_process", "actoin"):
+        cfg = _config()
+        rules = cfg.get("filters", [])
+        bad = dict(rules[0])
+        bad[extra] = True
+        # Round-trip through YAML, as load_config does, to get a config the types can't vouch for.
+        parsed: pt.PipelineConfig = yaml.safe_load(yaml.safe_dump({"filters": [bad, rules[1]]})) or {}
+        try:
+            pt.validate_config(parsed)
+        except ValueError:
+            continue
+        _fail(f"unknown filter key {extra!r} was accepted")
+
+
+def test_validate_config_rejects_retired_podly_alias() -> None:
+    """The old 'podly' action alias is no longer accepted."""
+    cfg = _config()
+    rules = cfg.get("filters", [])
+    rules[0]["action"] = "podly"
+    try:
+        pt.validate_config(cfg)
+    except ValueError:
+        return
+    _fail("action 'podly' was accepted")
 
 
 def test_rule_ordering_rejects_broad_podly_before_specific() -> None:
-    """Test rule ordering detects broad podly_process before specific rule."""
-    invalid_cfg: pt.PipelineConfig = {
-        "filters": [
-            {
-                "match": {
-                    "from": {"contains": "Bill Simmons"},
-                },
-                "action": "podly_process",
-                "reason": "Bill Simmons broad rule",
-            },
-            {
-                "match": {
-                    "from": {"contains": "Bill Simmons"},
-                    "title": {"contains": "Cousin Sal"},
-                },
-                "action": "skip",
-                "reason": "Cousin Sal specific rule",
-            },
-        ],
-    }
-    errors = pt.validate_rule_ordering(invalid_cfg["filters"])
-    _require(len(errors) > 0, "Expected ordering error when broad podly_process precedes specific rule")
+    """A broad podly_process rule shadowing a specific rule is an ordering error."""
+    filters: list[pt.FilterRule] = [
+        {"match": {"from": {"contains": "Example Show"}}, "action": "podly_process", "reason": "broad"},
+        {
+            "match": {"from": {"contains": "Example Show"}, "title": {"contains": "Guest"}},
+            "action": "skip",
+            "reason": "specific",
+        },
+    ]
+    if not pt.validate_rule_ordering(filters):
+        _fail("Expected ordering error when broad podly_process precedes specific rule")
 
 
-def test_process_file_executes_podly_process_and_skips_tts() -> None:
-    """Verify podly_process triggers enable_post_in_podly, logs only, and filters file."""
-    raw_content = (
-        "META_FROM: The Bill Simmons Podcast\n"
-        "META_TITLE: NFL Week 1 With Cousin Sal\n"
-        "META_GUID: simmons-guid-456\n"
-        "META_SOURCE_URL: https://example.com/audio.mp3\n"
-        "META_SOURCE_NAME: The Bill Simmons Podcast\n"
-        "\n"
-        "Episode summary notes here."
-    )
+def _run_podly_file(*, enabled: bool) -> tuple[MagicMock, MagicMock, str, pt.FileStats | None]:
+    """Process one podly_process file with Podly and Gotify mocked.
 
-    config: pt.PipelineConfig = {
-        "filters": [
-            {
-                "match": {
-                    "from": {"contains": "Bill Simmons"},
-                    "title": {"contains": "Cousin Sal"},
-                },
-                "action": "podly_process",
-                "reason": "Bill Simmons Cousin Sal episode",
-            },
-            {
-                "match": {
-                    "from": {"contains": "Bill Simmons"},
-                },
-                "action": "skip",
-                "reason": "Bill Simmons general skip",
-            },
-        ],
-    }
+    Returns:
+        (podly mock, gotify mock, filtered file text, the file's stats entry).
 
-    with (
-        tempfile.TemporaryDirectory() as d,
-        patch("prepare_text.enable_post_in_podly", return_value=True) as mock_podly,
-        patch("prepare_text.send_gotify_notification") as mock_notify,
-    ):
+    """
+    with tempfile.TemporaryDirectory() as d:
         tmp = pathlib.Path(d)
-        for name in ("CLEANED_OUTPUT_DIR", "RAW_ARCHIVE_DIR", "CLEANED_ARCHIVE_DIR", "FILTERED_DIR"):
-            p = tmp / name
-            p.mkdir(parents=True, exist_ok=True)
-            setattr(pt, name, str(p))
-
-        src = tmp / "20260907-120000-The Bill Simmons Podcast- NFL Week 1 With Cousin Sal.txt"
-        _ = src.write_text(raw_content, encoding="utf-8")
-        stats: dict[str, pt.FileStats] = {}
-
-        pt.process_file(src, config, stats)
-
-        # 1. enable_post_in_podly must have been called with metadata
-        _require(mock_podly.called, "enable_post_in_podly was not called")
-        mock_podly.assert_called_once_with(
-            guid="simmons-guid-456",
-            download_url="https://example.com/audio.mp3",
-            title="NFL Week 1 With Cousin Sal",
-            feed_name="The Bill Simmons Podcast",
-            podly_url=None,
-            username=None,
-            password=None,
-        )
-
-        # 2. No Gotify notification should be sent (log only)
-        _require(not mock_notify.called, "send_gotify_notification should not have been called")
-
-        # 3. File was moved to FILTERED_DIR, not CLEANED_OUTPUT_DIR
-        filtered_path = tmp / "FILTERED_DIR" / src.name
-        cleaned_path = tmp / "CLEANED_OUTPUT_DIR" / src.name
-        _require(filtered_path.exists(), f"File was not moved to filtered dir: {filtered_path}")
-        _require(not cleaned_path.exists(), f"File should not exist in cleaned dir: {cleaned_path}")
-
-        # 4. Raw file was archived
-        raw_archived = tmp / "RAW_ARCHIVE_DIR" / src.name
-        _require(raw_archived.exists(), f"File was not archived in raw archive: {raw_archived}")
-
-        # 5. Outcome recorded as filtered
+        dirs = {name: tmp / name for name in ("cleaned", "raw_archive", "cleaned_archive", "filtered")}
+        for path in dirs.values():
+            path.mkdir()
+        with (
+            patch("prepare_text.enable_post_in_podly", return_value=enabled) as mock_podly,
+            patch("prepare_text.send_gotify_notification") as mock_notify,
+            patch.object(pt, "CLEANED_OUTPUT_DIR", str(dirs["cleaned"])),
+            patch.object(pt, "RAW_ARCHIVE_DIR", str(dirs["raw_archive"])),
+            patch.object(pt, "CLEANED_ARCHIVE_DIR", str(dirs["cleaned_archive"])),
+            patch.object(pt, "FILTERED_DIR", str(dirs["filtered"])),
+        ):
+            src = tmp / "20260907-120000-Example Show- Week 1 With A Guest.txt"
+            _ = src.write_text(_RAW, encoding="utf-8")
+            stats: dict[str, pt.FileStats] = {}
+            pt.process_file(src, _config(), stats)
+        filtered = dirs["filtered"] / src.name
+        if not filtered.exists():
+            _fail("file was not moved to the filtered dir")
+        if (dirs["cleaned"] / src.name).exists():
+            _fail("podly_process file must not reach TTS")
+        if not (dirs["raw_archive"] / src.name).exists():
+            _fail("raw file was not archived")
         file_stat = next((s for s in stats.values() if s.get("file") == src.name), None)
-        _require(file_stat is not None, "Stats not recorded for file")
-        if file_stat is not None:
-            _require(file_stat.get("outcome") == "filtered", f"Unexpected outcome: {file_stat.get('outcome')}")
+        return mock_podly, mock_notify, filtered.read_text(encoding="utf-8"), file_stat
+
+
+def test_podly_process_enables_and_skips_tts() -> None:
+    """A successful enable filters the file silently, passing the episode identifiers."""
+    mock_podly, mock_notify, filtered_text, file_stat = _run_podly_file(enabled=True)
+    mock_podly.assert_called_once_with(
+        guid="example-guid-456",
+        download_url="https://example.com/audio.mp3",
+        title="Week 1 With A Guest",
+        feed_name="Example Show",
+    )
+    if mock_notify.called:
+        _fail("no Gotify alert expected on success")
+    if file_stat is None or file_stat.get("outcome") != "filtered":
+        _fail(f"unexpected stats: {file_stat!r}")
+    if "FAILED" in filtered_text:
+        _fail(f"success recorded as failure: {filtered_text!r}")
+
+
+def test_podly_process_failure_alerts_and_records_reason() -> None:
+    """A failed enable still filters the file, but alerts and says so in the recorded reason."""
+    _mock_podly, mock_notify, filtered_text, _file_stat = _run_podly_file(enabled=False)
+    if not mock_notify.called:
+        _fail("expected a Gotify alert when the Podly enable fails")
+    if "Podly enable FAILED" not in filtered_text:
+        _fail(f"failure not reflected in filtered reason: {filtered_text!r}")
+
+
+def run_tests() -> None:
+    """Run all podly filter tests."""
+    test_validate_config_accepts_podly_action()
+    test_validate_config_rejects_unknown_filter_key()
+    test_validate_config_rejects_retired_podly_alias()
+    test_rule_ordering_rejects_broad_podly_before_specific()
+    test_podly_process_enables_and_skips_tts()
+    test_podly_process_failure_alerts_and_records_reason()
+    logging.info("podly filter tests passed")
+
+
+if __name__ == "__main__":
+    run_tests()

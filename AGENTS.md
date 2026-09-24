@@ -57,7 +57,12 @@ uv run ruff format .
 uv run basedpyright
 ```
 
-Validation is manual; there is no automated test suite.
+Tests are script-style `test_*.py` files next to the code in each subproject (no pytest dependency, no CI). Run one with `uv run python3 test_x.py` from its subproject directory; a test that fails raises `AssertionError`. Also do manual validation for anything that depends on live services or config.
+
+```bash
+# Run every test script in every subproject
+for d in imap rss archive prepare-text text-to-speech shared; do (cd $d && for t in test_*.py; do uv run python3 "$t" >/dev/null || echo "FAIL $d/$t"; done); done
+```
 
 ---
 
@@ -92,7 +97,9 @@ Fetches unseen Gmail messages. Three intake modes based on email subject:
   - For HTML-body sources (Substack, etc.), extracts body from HTML rather than lossy plain text to prevent anchor word-joins and preserve structure.
   - Recognized platforms route through structural extractor (`shared/podcast_shared/structural_extract.py`), walking HTML into an ordered `Block` tree.
   - Quotes are marked with `BLOCKQUOTE_MARKER`. Embedded content (tweets, images, videos, link cards, footnotes) is parsed into `ASIDE_MARKER` blocks.
-  - Content images and tweet media are described via OpenAI Responses API vision (`shared/podcast_shared/describe.py`), gated by `EMBED_VISION` (`1`=enabled, `0`=disabled) and `EMBED_DROP_TYPES`.
+  - Content images and tweet media are described via OpenAI Responses API vision (`shared/podcast_shared/describe.py`), gated by `EMBED_VISION` (`1`=enabled, `0`=disabled) and `EMBED_DROP_TYPES`. Vision replies `DECORATIVE` for page chrome (logos, icons, dividers, banners), and those images are dropped.
+  - Vision failures are classified. An image the API refuses (a 400/422 whose code or param names the image) falls back to caption/alt text at once and is reported in a Gotify alert. A URL the API can't download is retried 3 times (5 s and 20 s waits) and then defers only that email. Everything else counts as an outage: bad key or model (401/403/404), any other invalid-request 400, or connection/5xx errors after 3 attempts. An outage defers the email and trips a per-run circuit. Once the circuit trips, or 5 minutes of vision time have been spent in the run, later emails are skipped until the next run: they stay unseen, no attempt is counted and no alert is sent, but their 24-hour clock starts. So an outage alerts once per email only when that email is actually tried, and a long outage can't hold back emails indefinitely.
+  - Deferred emails live in `imap/vision-deferrals.json` (atomic writes), keyed by IMAP UID and checked against Message-ID. Descriptions already obtained are cached, including those from a skipped run, so a retry only asks for the missing ones. A deferred email is retried at most hourly. Gotify alerts once when an email is first deferred. After 24 hours it publishes, with caption/alt text for any image that still fails, plus a second alert. Entries for emails no longer unseen are pruned.
   - Publisher-specific link extraction and scraping rules are configured in `imap/sources.yaml` (`sources.example.yaml`).
 - **`link`**: Fetches full article via Playwright + trafilatura. URLs matching configured authenticated domains route to the authenticated scraper (`http://localhost:3002/fetch`), others to the general scraper (`http://localhost:3001/fetch`).
 - **`youtube`**: Downloads audio directly via `yt-dlp` using non-HLS audio format and Android player client (`bestaudio[protocol!=m3u8][protocol!=m3u8_native]/bestaudio/best`, `{"youtube": {"player_client": ["android"]}}`). Writes ID3 tags directly, bypassing the TTS pipeline.
@@ -115,7 +122,8 @@ Processes raw files from `prepare-text/text-input-raw/` according to rules in `p
 - **Filtering Actions**:
   - `skip`: Skips text synthesis entirely.
   - `notify`: Dispatches a Gotify push alert (can be gated by Gemini via `llm_check`).
-  - `podly_process` / `podly`: Enables episode directly in Podly API (`http://localhost:5001`) and skips local TTS processing without notifications.
+  - `podly_process`: Whitelists the episode in Podly and skips local TTS. The episode is matched by GUID, then download URL, then exact title within the feed whose name matches `from`. Connection settings come only from `PODLY_URL`/`PODLY_USERNAME`/`PODLY_PASSWORD`. If the enable fails, the file is still filtered, the recorded reason says it failed, and a Gotify alert asks you to enable it manually.
+  - Match fields: `from`, `title`, `source_url`, `source_kind`, `source_name`, `intake_type`, `guid`. Unknown filter keys are rejected at load time.
 - **Cleaning**:
   - Applies general cleaning steps (URL stripping, bracket removal, whitespace collapse, Beehiiv footer/anchor cleanup).
   - Executes regex text removals (`text_removals`) and substitutions (`text_replacements`).
@@ -147,6 +155,8 @@ Reads `prepare-text/text-input-cleaned/*.txt`, parses `META_` headers, and route
 - **Feed Routing**:
   - Default: Topical feed (`dropcaster-docker/audio/`).
   - Evergreen: Long-form / backlog episodes routed to `dropcaster-docker/audio/<evergreen_dir>/` based on `evergreen_feed` rules in `narrators.yaml` (by whole source or word count threshold).
+
+- **Failures**: Google TTS calls retry transient errors (503/500/429/timeouts) with backoff, under a 5-minute total deadline per request, so a hung call can't hold the run lock. A file that still fails stays in `text-input-cleaned/` for the next run. The other files are still processed, each Gemini batch job is collected on its own, and the feeds still regenerate; the run then exits nonzero so `process-caller.sh` sends a Gotify alert. If the failure is a service outage (Google Cloud TTS or Gemini: 5xx, 429, connection errors), the remaining files or batch jobs are left for the next run instead of each waiting out its own retries, and outages never count toward the limit below. A file or batch job that fails 3 runs in a row for any other reason (counted in `text-to-speech/tts-strikes.json`) is moved to `text-to-speech/tts-failed/`, with one alert. Episodes are exported to `<name>.mp3.partial`, tagged and dated, then renamed into place, so Dropcaster never publishes a half-written or untagged file; a `.partial` left by a killed run is deleted at the start of the next.
 
 ### 6. Dropcaster & Retention
 - **Dropcaster (Docker)**: Runs `dropcaster` to regenerate `audio/index.rss` and `audio/evergreen/index.rss` whenever audio files change.
@@ -190,14 +200,14 @@ Configured in gitignored root `.env` (template in `.env.example`):
 | `OPENAI_API_KEY` | OpenAI API key for comment briefings and embed image vision descriptions. |
 | `COMMENT_BRIEFING_MODEL` | (Optional) Model for comment briefing summaries (default `gpt-5-mini`). |
 | `EMBED_VISION` | Set `0` to disable OpenAI vision descriptions of embed images (default enabled). |
-| `EMBED_VISION_MODEL` | (Optional) Model for vision descriptions (default `gpt-5.6`). |
+| `EMBED_VISION_MODEL` | (Optional) Model for vision descriptions (default `gpt-6-luna`). |
 | `EMBED_DROP_TYPES` | (Optional) Comma-separated embed types to drop (e.g. `video,card`). |
 | `GOTIFY_SERVER` | Base URL of Gotify push server (`https://gotify.example.com`). |
 | `GOTIFY_TOKEN` | Application token for Gotify notifications. |
 | `PODLY_URL` | Base URL for Podly server (`http://localhost:5001`). |
 | `PODLY_USERNAME` | Username for Podly authentication. |
 | `PODLY_PASSWORD` | Password for Podly authentication. |
-| `PODCAST_DOMAIN_PRIMARY` | Primary domain for Dropcaster RSS feed URLs. |
+| `PODCAST_DOMAIN_PRIMARY` | Primary domain for Dropcaster RSS feed URLs. Required: `process.sh` fails before regenerating feeds if it is empty. |
 | `PODCAST_DOMAIN_SECONDARY` | Secondary domain for feed mirrors. |
 | `PODCAST_RETENTION_WEEKS` | Weeks of audio to keep in topical feed before archiving (default `8`). |
 | `TZ` | Timezone for log timestamps (default `UTC`). |
@@ -217,6 +227,7 @@ Configured in gitignored root `.env` (template in `.env.example`):
 - **Published audio**: `dropcaster-docker/audio/`
 - **Evergreen feed audio**: `dropcaster-docker/audio/evergreen/`
 - **Archived audio**: `dropcaster-docker/audio-archive/`
+- **Vision deferrals** (emails awaiting image descriptions): `imap/vision-deferrals.json`
 
 ---
 
@@ -241,3 +252,4 @@ Configured in gitignored root `.env` (template in `.env.example`):
      - `text-to-speech/narrators.example.yaml` → `text-to-speech/narrators.yaml`
      - `dropcaster-docker/audio/channel.example.yml` → `dropcaster-docker/audio/channel.yml`
   3. Place `posts.json` in `archive/` if running archive intake.
+  4. For the TLS reverse proxy, copy `nginx-proxy-certbot-docker/.env.example` to `nginx-proxy-certbot-docker/.env`. Compose fills `${PODCAST_DOMAIN_PRIMARY}`, `${GMAIL_PRIMARY_ACCOUNT}`, `${CF_TOKEN}` and `${CF_ACCOUNT_ID}` from that file, not from the root `.env` (which Compose can't parse). Without it, a recreated container gets empty values.

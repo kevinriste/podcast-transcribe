@@ -20,8 +20,18 @@ import io
 import logging
 import re
 
-from google.api_core.exceptions import InvalidArgument
+import httpx
+from google.api_core import retry
+from google.api_core.exceptions import (
+    DeadlineExceeded,
+    InternalServerError,
+    InvalidArgument,
+    RetryError,
+    ServiceUnavailable,
+    TooManyRequests,
+)
 from google.cloud import texttospeech
+from google.genai import errors as genai_errors
 from podcast_shared import ASIDE_MARKER, BLOCKQUOTE_MARKER
 from pydub import AudioSegment
 
@@ -30,6 +40,7 @@ __all__ = [
     "BLOCKQUOTE_MARKER",
     "DEFAULT_NARRATOR_VOICE",
     "DEFAULT_QUOTE_POOL",
+    "TTS_RETRY",
     "assign_voice",
     "parse_segments",
     "plan_article_utterances",
@@ -42,6 +53,51 @@ __all__ = [
 # article default (en-US-Wavenet-F); quote pool is other WaveNet speakers.
 DEFAULT_NARRATOR_VOICE = "en-US-Wavenet-F"
 DEFAULT_QUOTE_POOL = ["en-US-Wavenet-D", "en-US-Wavenet-C", "en-US-Wavenet-A", "en-US-Wavenet-E"]
+
+# Google Cloud TTS calls get no retries by default, so one transient 503 used to abort the
+# whole cron run. Back off and retry transient errors for up to 5 minutes per request.
+TTS_RETRY = retry.Retry(
+    predicate=retry.if_exception_type(ServiceUnavailable, InternalServerError, DeadlineExceeded, TooManyRequests),
+    initial=2.0,
+    maximum=30.0,
+    multiplier=2.0,
+    timeout=300.0,
+)
+# Total deadline per request, retries included. Without it a hung gRPC call blocks forever
+# (the default is no timeout) and the cron run holds its lock indefinitely.
+TTS_TIMEOUT = 300.0
+_TTS_OUTAGE_ERRORS = (
+    ServiceUnavailable,
+    InternalServerError,
+    DeadlineExceeded,
+    TooManyRequests,
+    RetryError,
+    genai_errors.ServerError,
+    httpx.TransportError,
+)
+
+
+def is_tts_outage(exc: BaseException) -> bool:
+    """Whether ``exc`` (or anything in its cause/context chain) means a TTS service is unavailable.
+
+    Covers Google Cloud TTS (WaveNet) errors that survived ``TTS_RETRY`` and Gemini API
+    server errors, rate limits and connection failures.
+
+    Returns:
+        True for transient service-side errors, as opposed to a problem with this particular text.
+
+    """
+    seen: BaseException | None = exc
+    for _ in range(10):  # cause/context chains are short; the bound guards against cycles
+        if seen is None:
+            return False
+        if isinstance(seen, _TTS_OUTAGE_ERRORS):
+            return True
+        if isinstance(seen, genai_errors.ClientError) and seen.code == 429:
+            return True
+        seen = seen.__cause__ or seen.__context__
+    return False
+
 
 _PAUSE_MS = 400
 _MAX_TTS_BYTES = 4800  # Google Cloud TTS hard limit is 5000 bytes per request
@@ -240,12 +296,16 @@ def _synth(client: texttospeech.TextToSpeechClient, text: str, voice: str) -> Au
         try:
             response = client.synthesize_speech(  # pyright: ignore[reportUnknownMemberType]
                 request={"input": synthesis_input, "voice": voice_params, "audio_config": with_fx},
+                retry=TTS_RETRY,
+                timeout=TTS_TIMEOUT,
             )
         except InvalidArgument:
             # Studio / Chirp3-HD voices reject effects profiles; retry plain.
             plain = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
             response = client.synthesize_speech(  # pyright: ignore[reportUnknownMemberType]
                 request={"input": synthesis_input, "voice": voice_params, "audio_config": plain},
+                retry=TTS_RETRY,
+                timeout=TTS_TIMEOUT,
             )
         parts.append(AudioSegment.from_mp3(io.BytesIO(response.audio_content)))
     if not parts:

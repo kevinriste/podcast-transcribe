@@ -22,8 +22,8 @@ def _fail(msg: str) -> None:
 def test_slug_source_normalizes() -> None:
     """slug_source lowercases, hyphenates, and defaults empty input."""
     for source, expected in (
-        ("Astral Codex Ten", "astral-codex-ten"),
-        ("hi@www.garbageday.email", "hi-www-garbageday-email"),
+        ("Acme Weekly", "acme-weekly"),
+        ("hi@www.example.email", "hi-www-example-email"),
         ("", "unknown"),
     ):
         result = slug_source(source)
@@ -36,21 +36,21 @@ def test_store_writes_html_and_meta() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         html_path = store_intake_html(
-            source="Astral Codex Ten",
+            source="Acme Weekly",
             episode_id="20260730-010716",
             html="<html><body><p>hi</p></body></html>",
             url="https://example.com/p/x",
             intake_type="email",
             store_root=root,
         )
-        expected_path = root / "astral-codex-ten" / "20260730-010716.html"
+        expected_path = root / "acme-weekly" / "20260730-010716.html"
         if html_path != expected_path:
             _fail(f"path {html_path} != {expected_path}")
         if not html_path.read_text(encoding="utf-8").startswith("<html>"):
             _fail("HTML content not written")
-        meta_raw = (root / "astral-codex-ten" / "20260730-010716.meta.json").read_text(encoding="utf-8")
+        meta_raw = (root / "acme-weekly" / "20260730-010716.meta.json").read_text(encoding="utf-8")
         for fragment in (
-            '"source": "Astral Codex Ten"',
+            '"source": "Acme Weekly"',
             '"url": "https://example.com/p/x"',
             '"intake_type": "email"',
             '"episode_id": "20260730-010716"',

@@ -5,6 +5,7 @@ import os
 import pathlib
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
@@ -21,6 +22,7 @@ from imap_tools.query import AND
 from playwright.sync_api import sync_playwright
 from podcast_shared import (
     BLOCKQUOTE_MARKER,
+    VisionUnavailableError,
     apply_id3_tags,
     describe_image,
     enrich_images,
@@ -31,11 +33,16 @@ from podcast_shared import (
     serialize_flat,
     store_intake_html,
 )
+from podcast_shared.describe import Describer
 from trafilatura import bare_extraction, extract
+
+from vision_deferral import DEFER_LIMIT, DeferralStore, VisionCircuit, VisionSkippedError, make_describer
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
 output_folder = "../prepare-text/text-input-raw"
+# Emails held back because their image descriptions failed (see vision_deferral.py).
+VISION_DEFERRALS_PATH = pathlib.Path("vision-deferrals.json")
 gmail_user = os.getenv("GMAIL_PODCAST_ACCOUNT")
 gmail_password = os.getenv("GMAIL_PODCAST_ACCOUNT_APP_PASSWORD")
 sources_config_file = "sources.yaml"
@@ -241,7 +248,7 @@ _BLOCK_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 _LIST_MARKER_RE = re.compile(r"^\s*[*•\-]\s+")
 
 
-def extract_body_from_html(msg: MailMessage) -> tuple[str | None, bool]:
+def extract_body_from_html(msg: MailMessage, *, describer: Describer = describe_image) -> tuple[str | None, bool]:
     """Extract flat marker body text from an email's HTML part.
 
     Runs the structural extractor over the article content region, so block quotes
@@ -249,13 +256,16 @@ def extract_body_from_html(msg: MailMessage) -> tuple[str | None, bool]:
     becomes ``ASIDE_MARKER`` asides — recovering content the old block-walk dropped.
     Content images are vision-described (layered on alt/caption) unless
     ``EMBED_VISION=0`` or no ``OPENAI_API_KEY`` is set, in which case image asides fall
-    back to caption/alt.
+    back to caption/alt. ``describer`` is normally a ``make_describer`` wrapper that adds
+    the deferral cache and failure policy; a ``VisionUnavailableError`` it raises
+    propagates so the caller can defer the email.
 
     Returns:
         ``(body, structural)`` — the serialized body text (or None when there is no HTML
         or no extractable content), and whether a recognized content container was
-        matched. ``structural`` is False for the whole-document fallback (e.g. Bloomberg),
-        so intake can decline to mark it ``structured`` and keep the plain-text cleaning.
+        matched. ``structural`` is False for the whole-document fallback (a publisher with
+        no recognized content container), so intake can decline to mark it ``structured``
+        and keep the plain-text cleaning.
 
     """
     if not msg.html:
@@ -263,7 +273,7 @@ def extract_body_from_html(msg: MailMessage) -> tuple[str | None, bool]:
     region, structural = find_content_region_matched(msg.html)
     blocks = extract_blocks(region)
     if os.environ.get("EMBED_VISION", "1") != "0":
-        enrich_images(blocks, describe_image)
+        enrich_images(blocks, describer)
     drop_types = frozenset(t.strip().lower() for t in os.environ.get("EMBED_DROP_TYPES", "").split(",") if t.strip())
     body = serialize_flat(blocks, drop_types=drop_types)
     return (body or None), structural
@@ -450,7 +460,25 @@ def main() -> None:
     imap_config = load_imap_config()
     with MailBox("imap.gmail.com").login(gmail_user, gmail_password) as mailbox:
         msgs = mailbox.fetch(AND(seen=False), mark_seen=False)  # pyright: ignore[reportUnknownMemberType]
+        deferrals = DeferralStore(VISION_DEFERRALS_PATH)
+        circuit = VisionCircuit()
+        live_uids: set[str] = set()
         for msg in msgs:
+            uid_key = msg.uid or ""
+            live_uids.add(uid_key)
+            message_id = unfold_header_value(msg.headers.get("message-id", ("",))[0]) if msg.headers else ""
+            plan = deferrals.plan(uid_key, message_id, datetime.now(tz=UTC))
+            if plan.action == "wait":
+                logging.info("Vision deferred; not retrying %r yet", msg.subject)
+                continue
+            vision_failures: list[str] = []
+            describer = make_describer(
+                describe_image,
+                plan.cache,
+                circuit,
+                allow_undescribed=plan.allow_undescribed,
+                failures=vision_failures,
+            )
             try:
                 subject_raw = unfold_header_value(msg.subject).replace("Fwd: ", "")
                 date_stamp = msg.date.strftime("%Y%m%d-%H%M%S-%f")[0:15]
@@ -477,7 +505,7 @@ def main() -> None:
                         source_kind = "beehiiv"
                         # Beehiiv's HTML wraps the article in #content-blocks (masthead and
                         # footer sit outside it); extract structurally, falling back to plain.
-                        html_body, structural = extract_body_from_html(msg)
+                        html_body, structural = extract_body_from_html(msg, describer=describer)
                         if html_body:
                             email_text_raw = html_body
                             extraction = "structured" if structural else "plaintext"
@@ -490,9 +518,9 @@ def main() -> None:
                         if custom_source.use_html_body:
                             # Some publishers fuse hyperlink anchors onto adjacent words in
                             # the plain-text part; extract from HTML, falling back to plain.
-                            # Sources without a recognized content container (e.g. Bloomberg)
+                            # Sources without a recognized content container
                             # extract from the whole document, so they stay plain-text-cleaned.
-                            html_body, structural = extract_body_from_html(msg)
+                            html_body, structural = extract_body_from_html(msg, describer=describer)
                             if html_body:
                                 email_text_raw = html_body
                                 extraction = "structured" if structural else "plaintext"
@@ -503,7 +531,7 @@ def main() -> None:
                         # Substack's plain-text part is lossy (truncated) and flattens block
                         # quotes; extract from HTML to recover full content and mark quotes,
                         # falling back to plain text when there is no HTML part.
-                        html_body, structural = extract_body_from_html(msg)
+                        html_body, structural = extract_body_from_html(msg, describer=describer)
                         if html_body:
                             email_text_raw = html_body
                             extraction = "structured" if structural else "plaintext"
@@ -618,6 +646,29 @@ def main() -> None:
                 flags = MailMessageFlags.SEEN
                 uid: str = msg.uid or ""
                 _ = mailbox.flag(uid, flags, value=True)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+                if deferrals.clear(uid_key):
+                    deferrals.save()
+                if vision_failures:
+                    send_gotify_notification(
+                        "Image descriptions unavailable",
+                        f"{msg.subject}: {len(vision_failures)} image(s) published with caption/alt text.",
+                    )
+            except VisionSkippedError:
+                # Vision is down (or over budget) for this run: not a real attempt, so no
+                # alert and no change to the retry schedule. Keep any descriptions obtained.
+                if deferrals.stash(uid_key, message_id, plan.cache, datetime.now(tz=UTC)):
+                    deferrals.save()
+                logging.info("Skipping %r this run: vision unavailable", msg.subject)
+            except VisionUnavailableError as exc:
+                # Leave the email unseen so a later run retries it; keep what we have.
+                newly_deferred = deferrals.record_failure(uid_key, message_id, plan.cache, datetime.now(tz=UTC))
+                deferrals.save()
+                logging.warning("Deferring %r to a later run: %s", msg.subject, exc)
+                if newly_deferred:
+                    send_gotify_notification(
+                        "Email deferred: image descriptions unavailable",
+                        f"{msg.subject}\n\n{exc}\n\nRetrying hourly; publishes with caption/alt text after {DEFER_LIMIT}.",
+                    )
             except Exception:
                 error_from = msg.from_values
                 from_email_for_error = error_from.email if error_from else "unknown"
@@ -626,6 +677,8 @@ def main() -> None:
                     "Email processing error",
                     f"Failed to process email from {from_email_for_error}: {msg.subject}",
                 )
+        if deferrals.prune(live_uids):
+            deferrals.save()
 
 
 if __name__ == "__main__":

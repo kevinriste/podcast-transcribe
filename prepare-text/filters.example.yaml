@@ -3,12 +3,14 @@
 #
 # Schema notes:
 # - All match conditions are AND'd and case-insensitive
-# - Valid match fields: from, title, source_url, source_kind, source_name, intake_type
+# - Valid match fields: from, title, source_url, source_kind, source_name, intake_type, guid
 # - Match operators: {contains: "..."} or {not_contains: "..."}
 # - Filter actions:
 #     - "skip" (default, stops rule evaluation)
 #     - "notify" (sends Gotify notification, continues to next rule)
-#     - "podly_process" / "podly" (enables episode directly in Podly, stops rule evaluation, logs only, no notification)
+#     - "podly_process" (enables the episode in Podly and skips TTS; stops rule evaluation.
+#       Podly URL/credentials come from PODLY_URL / PODLY_USERNAME / PODLY_PASSWORD in .env.
+#       No notification on success; a Gotify alert if Podly could not enable it)
 # - A terminal rule (skip / podly_process) before other rules with overlapping match criteria is an error
 # - Valid flags for patterns: ignorecase, multiline, dotall (or a list of them)
 
@@ -16,7 +18,7 @@
 # Filters — decide which files to skip, notify about, or send to Podly
 # ---------------------------------------------------------------------------
 filters:
-  # Enable in Podly directly and skip TTS (logs only, sends no push notification)
+  # Enable in Podly directly and skip TTS (alerts via Gotify only if enabling fails)
   - match:
       from: {contains: "Example Podcast"}
       title: {contains: "Special Guest"}

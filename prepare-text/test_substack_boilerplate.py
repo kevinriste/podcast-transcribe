@@ -11,9 +11,9 @@ def _clean(text: str, source_kind: str = "substack") -> str:
 
 _FOOTER = (
     "Real final paragraph of the post.\n\n"
-    "You're currently a free subscriber to In My Tribe. For the full experience, upgrade your subscription.\n\n"
+    "You're currently a free subscriber to Example Letter. For the full experience, upgrade your subscription.\n\n"
     "Upgrade to paid\n\n"
-    "© 2026 Arnold Kling548 Market Street PMB 72296, San Francisco, CA 94104 Unsubscribe"
+    "© 2026 Sam Writer548 Market Street PMB 72296, San Francisco, CA 94104 Unsubscribe"
 )
 
 
@@ -67,9 +67,9 @@ def check_preceding_content_preserved() -> None:
 
     """
     text = (
-        "A message from my sponsor, Mechanize:\n\n"
+        "A message from my sponsor, Acme Robotics:\n\n"
         "We're hiring software engineers.\n\n"
-        "© 2026 Ssumner548 Market Street PMB 72296, San Francisco, CA 94104 Unsubscribe"
+        "© 2026 Jwriter548 Market Street PMB 72296, San Francisco, CA 94104 Unsubscribe"
     )
     out = _clean(text)
     if "A message from my sponsor" not in out or "hiring software engineers" not in out:
