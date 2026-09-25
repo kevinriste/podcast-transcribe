@@ -183,6 +183,7 @@ Key exports:
 - `structural_extract.py`: Offline parser turning HTML into structured `Block` trees.
 - `aside_render.py`: Renders embedded blocks into meta-narrator spoken asides.
 - `describe.py`: OpenAI vision descriptions for images and tweets.
+- `openai_routing.py`: Picks the OpenAI key per model (share vs noshare project) and sends billed noshare calls at the Flex tier with a standard-tier fallback.
 - `podly.py`: Podly API client for remote post whitelisting and processing.
 
 ---
@@ -198,6 +199,10 @@ Configured in gitignored root `.env` (template in `.env.example`):
 | `GEMINI_API_KEY` | Gemini API key for summaries, LLM filter checks, and Gemini TTS. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Absolute path to Google Cloud service account JSON for WaveNet TTS. |
 | `OPENAI_API_KEY` | OpenAI API key for comment briefings and embed image vision descriptions. |
+| `OPENAI_API_KEY_NOSHARE` | (Optional) Key for a separate OpenAI project with data sharing off; `NOSHARE_MODELS` use it and are billed. |
+| `NOSHARE_MODELS` | (Optional) Comma-separated models routed to `OPENAI_API_KEY_NOSHARE` (default `gpt-6-luna`). |
+| `OPENAI_FLEX` | Set `0` to stop sending billed noshare calls at the Flex tier (default on; a Flex 429 or timeout falls back to the standard tier). |
+| `OPENAI_FLEX_TIMEOUT` | (Optional) Seconds a Flex request may take before the standard-tier fallback (default `900`; vision uses 60 to stay inside its per-run time budget). |
 | `COMMENT_BRIEFING_MODEL` | (Optional) Model for comment briefing summaries (default `gpt-5-mini`). |
 | `EMBED_VISION` | Set `0` to disable OpenAI vision descriptions of embed images (default enabled). |
 | `EMBED_VISION_MODEL` | (Optional) Model for vision descriptions (default `gpt-6-luna`). |

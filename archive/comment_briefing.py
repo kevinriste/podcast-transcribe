@@ -14,7 +14,9 @@ from datetime import datetime
 import yaml
 from bs4 import BeautifulSoup, Tag
 from openai import OpenAI, OpenAIError
+from openai.types.responses import Response
 from podcast_shared import COMMENT_OFFSET
+from podcast_shared.openai_routing import Tier, api_key_for, send_with_flex
 
 MIN_COMMENTS = 5
 MODEL = os.environ.get("COMMENT_BRIEFING_MODEL", "gpt-5-mini")
@@ -176,7 +178,7 @@ def _post_model(prompt: str) -> str | None:
         The model's output text, or None on any failure.
 
     """
-    key = os.environ.get("OPENAI_API_KEY")
+    key = api_key_for(MODEL)
     if not key:
         logging.error("OPENAI_API_KEY not set; cannot generate comment briefing")
         return None
@@ -186,12 +188,17 @@ def _post_model(prompt: str) -> str | None:
         # unique (a post's own comments), so implicit caching only ever writes and never
         # reads it back — pure cost, no benefit. Explicit mode with no breakpoints opts
         # out of implicit caching, so no cache-write charges are incurred.
-        response = client.responses.create(
-            model=MODEL,
-            input=prompt,
-            timeout=300,
-            prompt_cache_options={"mode": "explicit"},
-        )
+
+        def request(c: OpenAI, tier: Tier, timeout: float) -> Response:
+            return c.responses.create(
+                model=MODEL,
+                input=prompt,
+                service_tier=tier,
+                timeout=timeout,
+                prompt_cache_options={"mode": "explicit"},
+            )
+
+        response = send_with_flex(client, MODEL, request, timeout=300)
     except OpenAIError:
         logging.exception("Comment briefing request failed")
         return None

@@ -32,7 +32,11 @@ from openai import (
     UnprocessableEntityError,
 )
 
+from podcast_shared.openai_routing import Tier, api_key_for, send_with_flex
+
 if TYPE_CHECKING:
+    from openai.types.responses import Response
+
     from podcast_shared.structural_extract import Block
 
 Describer = Callable[[str, str, str], str]
@@ -58,6 +62,9 @@ _PROMPT = (
 _VISION_ATTEMPTS = 3
 _VISION_RETRY_DELAYS = (5.0, 20.0)
 _VISION_TIMEOUT = 60.0
+# Flex (billed noshare traffic) gets the same budget before falling back to the standard tier:
+# a run spends at most 5 minutes on vision, so a slow Flex queue must not eat it.
+_VISION_FLEX_TIMEOUT = 60.0
 # Errors no retry can fix: the key or model is wrong. Defer at once and let the alert say so.
 _CONFIG_ERRORS = (AuthenticationError, PermissionDeniedError, NotFoundError)
 # The API's wording for an image URL it couldn't fetch (a bare "download" could be in a URL).
@@ -128,7 +135,7 @@ def describe_image(src: str, alt: str = "", caption: str = "") -> str:
     """
     if not src:
         return ""
-    key = os.environ.get("OPENAI_API_KEY")
+    key = api_key_for(VISION_MODEL)
     if not key:
         return ""
     hint = f" Caption: {caption}." if caption else f" Alt text: {alt}." if alt else ""
@@ -139,13 +146,20 @@ def describe_image(src: str, alt: str = "", caption: str = "") -> str:
     ]
     last_error: OpenAIError | None = None
     outage = False
+
+    def request(c: OpenAI, tier: Tier, timeout: float) -> Response:
+        return c.responses.create(
+            model=VISION_MODEL,
+            input=[{"role": "user", "content": content}],  # pyright: ignore[reportArgumentType]  (SDK union boundary)
+            service_tier=tier,
+            timeout=timeout,
+            prompt_cache_options={"mode": "explicit"},
+        )
+
     for attempt in range(1, _VISION_ATTEMPTS + 1):
         try:
-            response = client.responses.create(
-                model=VISION_MODEL,
-                input=[{"role": "user", "content": content}],  # pyright: ignore[reportArgumentType]  (SDK union boundary)
-                timeout=_VISION_TIMEOUT,
-                prompt_cache_options={"mode": "explicit"},
+            response = send_with_flex(
+                client, VISION_MODEL, request, timeout=_VISION_TIMEOUT, flex_timeout=_VISION_FLEX_TIMEOUT
             )
         except _CONFIG_ERRORS as exc:
             msg = f"Vision is misconfigured ({type(exc).__name__}; check OPENAI_API_KEY / EMBED_VISION_MODEL): {exc}"
