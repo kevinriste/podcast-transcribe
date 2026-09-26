@@ -153,7 +153,6 @@ def describe_image(src: str, alt: str = "", caption: str = "") -> str:
             input=[{"role": "user", "content": content}],  # pyright: ignore[reportArgumentType]  (SDK union boundary)
             service_tier=tier,
             timeout=timeout,
-            prompt_cache_options={"mode": "explicit"},
         )
 
     for attempt in range(1, _VISION_ATTEMPTS + 1):

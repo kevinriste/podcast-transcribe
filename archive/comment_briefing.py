@@ -195,7 +195,6 @@ def _post_model(prompt: str) -> str | None:
                 input=prompt,
                 service_tier=tier,
                 timeout=timeout,
-                prompt_cache_options={"mode": "explicit"},
             )
 
         response = send_with_flex(client, MODEL, request, timeout=300)

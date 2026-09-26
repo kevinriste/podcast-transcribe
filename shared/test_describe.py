@@ -158,7 +158,7 @@ def test_describe_image_config_error_defers_without_retrying() -> None:
         _status_error(NotFoundError, 404, "The model does not exist"),
         _status_error(BadRequestError, 400, "The requested model does not exist", {"param": "model"}),
         _status_error(
-            BadRequestError, 400, "Unsupported parameter: 'prompt_cache_options'", {"param": "prompt_cache_options"}
+            BadRequestError, 400, "Unsupported parameter: 'service_tier'", {"param": "service_tier"}
         ),
     ):
         responses = _FlakyResponses(failures=99, error=error)
