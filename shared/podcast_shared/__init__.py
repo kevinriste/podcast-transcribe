@@ -23,6 +23,7 @@ from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
 from podcast_shared.json_narrow import is_json_array as is_json_array
 from podcast_shared.json_narrow import is_json_object as is_json_object
+from podcast_shared.openai_routing import generate_text as generate_text
 from podcast_shared.podly import enable_post_in_podly as enable_post_in_podly
 from podcast_shared.podly import get_podly_config as get_podly_config
 from podcast_shared.structural_extract import ASIDE_MARKER as ASIDE_MARKER
@@ -38,7 +39,8 @@ from podcast_shared.structural_extract import serialize_blocks as serialize_bloc
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_MODEL = "gemini-3.1-flash-lite"
+# gpt-5.6-luna sits in OpenAI's free 10M/day group on the share key.
+SUMMARY_MODEL = os.environ.get("PODCAST_SUMMARY_MODEL", "gpt-5.6-luna")
 
 # BLOCKQUOTE_MARKER and ASIDE_MARKER are defined in the leaf module structural_extract
 # (so aside_render can import them without a circular dependency) and re-exported above;
@@ -127,12 +129,12 @@ def split_metadata(raw_text: str) -> tuple[dict[str, str], str]:
 
 
 # ---------------------------------------------------------------------------
-# Gemini summaries
+# Article summaries
 # ---------------------------------------------------------------------------
 
 
 def generate_summary(text: str, title: str) -> str:
-    """Generate a 2-3 sentence article summary via Gemini.
+    """Generate a 2-3 sentence article summary via OpenAI (SUMMARY_MODEL).
 
     Returns:
         The summary text, or empty string on failure.
@@ -141,22 +143,18 @@ def generate_summary(text: str, title: str) -> str:
     if not text.strip():
         logger.info("Summary skipped: empty content")
         return ""
-    logger.info("Generating summary via Gemini")
+    logger.info("Generating summary via %s", SUMMARY_MODEL)
     prompt = (
         "Summarize the article in 2-3 sentences. Focus on key points and keep it concise.\n\n"
         f"Title: {title}\n\nArticle:\n{text}"
     )
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(  # pyright: ignore[reportUnknownMemberType]
-            model=SUMMARY_MODEL,
-            contents=prompt,
-        )
-        if response.text is None:
-            logger.warning("Gemini returned no text for summary")
+        summary = generate_text(SUMMARY_MODEL, prompt)
+        if not summary:
+            logger.warning("%s returned no text for summary", SUMMARY_MODEL)
             return ""
         logger.info("Summary generated")
-        return response.text.strip()
+        return summary
     except Exception:
         logger.exception("Summary generation failed")
         return ""

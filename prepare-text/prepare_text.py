@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import pathlib
 import re
 import shutil
@@ -24,7 +25,7 @@ from bs4 import BeautifulSoup
 from podcast_shared import (
     ASIDE_MARKER,
     enable_post_in_podly,
-    get_gemini_client,
+    generate_text,
     send_gotify_notification,
     split_metadata,
 )
@@ -40,7 +41,8 @@ STATS_DIR = "stats"
 CONFIG_FILE = "filters.yaml"
 CHARACTER_LIMIT = 150000
 STATS_RETENTION_DAYS = 365
-LLM_MODEL = "gemini-3.1-flash-lite"
+# gpt-5.6-luna sits in OpenAI's free 10M/day group on the share key.
+LLM_MODEL = os.environ.get("PREPARE_TEXT_LLM_MODEL", "gpt-5.6-luna")
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +406,7 @@ def evaluate_match(match_block: Mapping[str, Mapping[str, str]], metadata: dict[
 
 
 def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: str) -> bool:
-    """Run a Gemini LLM check and return whether the content matches.
+    """Run an LLM check (LLM_MODEL) and return whether the content matches.
 
     Returns:
         True if the LLM confirms the check, False on failure or negative result.
@@ -413,23 +415,20 @@ def evaluate_llm_check(prompt_template: str, metadata: dict[str, str], content: 
     title = metadata.get("title", "")
     full_prompt = f"{prompt_template}\n\nTitle: {title}\n\nContent:\n{content}"
     try:
-        client = get_gemini_client()
-        response = client.models.generate_content(  # pyright: ignore[reportUnknownMemberType]
-            model=LLM_MODEL,
-            contents=full_prompt,
-            config={
-                "response_mime_type": "application/json",
-                "response_schema": {
-                    "type": "object",
-                    "properties": {"result": {"type": "boolean"}},
-                    "required": ["result"],
-                },
+        text = generate_text(
+            LLM_MODEL,
+            full_prompt,
+            json_schema={
+                "type": "object",
+                "properties": {"result": {"type": "boolean"}},
+                "required": ["result"],
+                "additionalProperties": False,
             },
         )
-        if response.text is None:
-            logging.warning("Gemini returned no text for LLM check")
+        if not text:
+            logging.warning("%s returned no text for LLM check", LLM_MODEL)
             return False
-        parsed: dict[str, bool] = json.loads(response.text)  # pyright: ignore[reportAny]
+        parsed: dict[str, bool] = json.loads(text)  # pyright: ignore[reportAny]
         return bool(parsed.get("result"))
     except Exception:
         logging.exception("LLM check failed")

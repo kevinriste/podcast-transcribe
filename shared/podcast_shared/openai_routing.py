@@ -32,12 +32,45 @@ def api_key_for(model: str) -> str | None:
     """Pick the OpenAI key for a model.
 
     Returns:
-        OPENAI_API_KEY_NOSHARE for NOSHARE_MODELS when it is set, else OPENAI_API_KEY.
+        OPENAI_API_KEY_NOSHARE for NOSHARE_MODELS when it is set, else OPENAI_API_KEY_SHARE,
+        else OPENAI_API_KEY.
 
     """
     if model in NOSHARE_MODELS and os.environ.get("OPENAI_API_KEY_NOSHARE"):
         return os.environ["OPENAI_API_KEY_NOSHARE"]
-    return os.environ.get("OPENAI_API_KEY")
+    return os.environ.get("OPENAI_API_KEY_SHARE") or os.environ.get("OPENAI_API_KEY")
+
+
+def generate_text(model: str, prompt: str, *, json_schema: dict[str, object] | None = None) -> str:
+    """Run one low-effort Responses call on the model's key and return its output text.
+
+    ``json_schema`` (an object schema) switches on strict structured output.
+
+    Returns:
+        The stripped output text.
+
+    Raises:
+        RuntimeError: When no OpenAI key is configured for the model.
+
+    """
+    from openai import OpenAI  # noqa: PLC0415  (runtime import; the module-level one is type-only)
+
+    key = api_key_for(model)
+    if not key:
+        msg = f"No OpenAI key configured for {model}"
+        raise RuntimeError(msg)
+    client = OpenAI(api_key=key, max_retries=4)
+    if json_schema is None:
+        response = client.responses.create(model=model, input=prompt, reasoning={"effort": "low"}, timeout=300)
+    else:
+        response = client.responses.create(
+            model=model,
+            input=prompt,
+            reasoning={"effort": "low"},
+            text={"format": {"type": "json_schema", "name": "result", "strict": True, "schema": json_schema}},
+            timeout=300,
+        )
+    return response.output_text.strip()
 
 
 def uses_flex(model: str) -> bool:

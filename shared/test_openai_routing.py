@@ -65,13 +65,17 @@ def _set_env(**env: str | None) -> None:
 
 
 def test_key_routing() -> None:
-    """Luna uses the noshare key when set; everything else uses OPENAI_API_KEY."""
+    """Luna uses the noshare key when set; everything else the share key, else OPENAI_API_KEY."""
     _set_env(OPENAI_API_KEY="sk-share", OPENAI_API_KEY_NOSHARE="sk-noshare", OPENAI_FLEX=None)
     if api_key_for("gpt-6-luna") != "sk-noshare" or api_key_for("gpt-5-mini") != "sk-share":
         _fail("key routing")
     _set_env(OPENAI_API_KEY_NOSHARE=None)
     if api_key_for("gpt-6-luna") != "sk-share":
         _fail("luna should fall back to OPENAI_API_KEY without a noshare key")
+    _set_env(OPENAI_API_KEY_SHARE="sk-share-project")
+    if api_key_for("gpt-5.6-luna") != "sk-share-project":
+        _fail("share models should prefer OPENAI_API_KEY_SHARE")
+    _set_env(OPENAI_API_KEY_SHARE=None)
 
 
 def test_flex_only_for_billed_noshare_traffic() -> None:
