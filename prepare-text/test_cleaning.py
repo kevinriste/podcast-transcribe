@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from podcast_shared import LISTENING_TIME_MARKER
+
 import prepare_text as pt
 
 
@@ -91,6 +93,32 @@ def test_byline_deduplication() -> None:
         got = pt.byline_line_count(body, from_name, title)
         if got != expected:
             _fail(f"byline_line_count({body!r}) = {got}, expected {expected}")
+
+
+def test_add_intro() -> None:
+    """The intro always names the author and title, with the listening-time marker after it."""
+    marker = LISTENING_TIME_MARKER
+    cases = (
+        # Plain body: our own header goes in front
+        ("Body text.", f"Jane Author.\nA Post.\n{marker}\n\nBody text."),
+        # Body already leads with author then title: kept as is
+        ("Jane Author\nA Post\n\nBody text.", f"Jane Author\nA Post\n{marker}\n\nBody text."),
+        # Body leads with the bare title: the author line goes in front of it
+        (
+            "A Post\nOriginally published: 2014-01-01\n\nBody text.",
+            f"Jane Author.\nA Post\n{marker}\nOriginally published: 2014-01-01\n\nBody text.",
+        ),
+        # Body leads with the author alone: no title is added
+        ("Jane Author\n\nBody text.", f"Jane Author\n{marker}\n\nBody text."),
+    )
+    for body, expected in cases:
+        got = pt.add_intro(body, "Jane Author", "A Post")
+        if got != expected:
+            _fail(f"add_intro({body!r}) = {got!r}, expected {expected!r}")
+    if pt.add_intro("A Post\n\nBody.", "", "A Post") != f"A Post\n{marker}\n\nBody.":
+        _fail("add_intro without an author should leave a title-led body alone")
+    if pt.add_intro("Body.", "", "") != "Body.":
+        _fail("add_intro without author or title should leave the body alone")
 
 
 def test_period_runs_after_removals() -> None:
@@ -220,6 +248,7 @@ def run_tests() -> None:
     test_relocate_footnotes_as_aside()
     test_empty_brackets_and_dividers()
     test_byline_deduplication()
+    test_add_intro()
     test_period_runs_after_removals()
     test_divider_variants()
     test_relocate_footnote_mid_sentence()

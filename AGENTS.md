@@ -129,7 +129,7 @@ Processes raw files from `prepare-text/text-input-raw/` according to rules in `p
   - Applies general cleaning steps (URL stripping, bracket removal, whitespace collapse, Beehiiv footer/anchor cleanup).
   - Executes regex text removals (`text_removals`) and substitutions (`text_replacements`).
   - `archive-comments` episodes bypass content-mutating cleaning steps to preserve load-bearing speaker tags.
-- Prepends an author/title header unless the body already leads with its byline, and writes a `LISTENING_TIME_MARKER` line where that intro ends (`shared/podcast_shared/listening_time.py`).
+- Prepends an author/title header unless the body already leads with its byline (a body that leads with the bare title gets just the author line), and writes a `LISTENING_TIME_MARKER` line where that intro ends (`shared/podcast_shared/listening_time.py`).
 - Archives raw and cleaned files under `prepare-text/text-input-archive/`. Writes output to `prepare-text/text-input-cleaned/`.
 
 ### 5. `text-to-speech/text_to_speech.py` (Synthesis & ID3 Tagging)

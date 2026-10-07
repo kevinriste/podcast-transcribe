@@ -1119,6 +1119,28 @@ def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
     return byline_line_count(body, from_name, title) > 0
 
 
+def add_intro(body: str, from_name: str, title: str) -> str:
+    """Lead the body with the author and title, and mark where that spoken intro ends.
+
+    A body that already opens with its byline keeps it. One that opens with the bare
+    title (e.g. a blog archive post) gets the author line put in front of it. The
+    listening-time marker goes after the intro so text-to-speech can announce the
+    episode length right there.
+
+    Returns:
+        The body with its intro and listening-time marker.
+
+    """
+    intro_lines = byline_line_count(body, from_name, title)
+    if not intro_lines:
+        header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
+        return header + LISTENING_TIME_MARKER + "\n\n" + body if header else body
+    first_line = next(ln for ln in body.splitlines() if ln.strip())
+    if from_name and title and _norm_header(first_line) == _norm_header(title):
+        return f"{from_name}.\n" + mark_intro_end(body, intro_lines)
+    return mark_intro_end(body, intro_lines)
+
+
 # ---------------------------------------------------------------------------
 # Main processing
 # ---------------------------------------------------------------------------
@@ -1325,15 +1347,8 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
     if not passthrough:
         from_name = metadata.get("from", "").strip()
         title = metadata.get("title", "").strip()
-        header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
         footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
-        # Mark where the spoken intro ends so text-to-speech can announce the listening
-        # time right after it: after our own header, or after the body's existing byline.
-        intro_lines = byline_line_count(cleaned_text, from_name, title)
-        if header and not intro_lines:
-            cleaned_text = header + LISTENING_TIME_MARKER + "\n\n" + cleaned_text
-        else:
-            cleaned_text = mark_intro_end(cleaned_text, intro_lines)
+        cleaned_text = add_intro(cleaned_text, from_name, title)
         if from_name or title:
             cleaned_text = cleaned_text.rstrip() + footer
 

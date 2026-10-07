@@ -71,7 +71,7 @@ def check_listening_time_marker_after_header() -> None:
 
 
 def check_listening_time_marker_after_existing_byline() -> None:
-    """Put the marker after the body's own title line when the body already leads with it."""
+    """Lead a title-only body with the author line, keeping the marker after the title."""
     raw = (
         "META_FROM: Example Blog\nMETA_TITLE: A Post\nMETA_INTAKE_TYPE: archive\n\n"
         "A Post\nOriginally published: 2013-05-12\n\nThe body starts here."
@@ -79,7 +79,7 @@ def check_listening_time_marker_after_existing_byline() -> None:
     with tempfile.TemporaryDirectory() as d:
         body = _run_process(raw, pathlib.Path(d))
     intro, rest = split_intro(body)
-    _require(intro.rstrip(".") == "A Post", f"intro should be the existing title line: {intro!r}")
+    _require(intro == "Example Blog.\nA Post.", f"intro should be the author then the title: {intro!r}")
     _require(rest.startswith("Originally published"), f"body should follow the marker: {rest!r}")
 
 
