@@ -599,6 +599,78 @@ def test_extract_blocks_inline_spacing() -> None:
         _fail(f"inline spacing wrong: {text!r}")
 
 
+def _blocks(html: str) -> list[Block]:
+    return extract_blocks(BeautifulSoup(html, "html.parser"))
+
+
+def test_br_lines_stay_separate() -> None:
+    """Lines broken by <br> become separate blocks of the same kind; spacer dots are dropped."""
+    html = (
+        "<p>A housing project meets a lawsuit<br/>Residents sued to block it.</p>"
+        "<blockquote><p>Old lady judges watch people in pairs<br>Limited in sex, they dare<br>.</p></blockquote>"
+    )
+    blocks = _blocks(html)
+    got = [(b.type, b.payload["text"]) for b in blocks]
+    expected = [
+        ("text", "A housing project meets a lawsuit"),
+        ("text", "Residents sued to block it."),
+        ("quote", "Old lady judges watch people in pairs"),
+        ("quote", "Limited in sex, they dare"),
+    ]
+    if got != expected:
+        _fail(f"br lines: {got!r}")
+
+
+def test_superscript_ordinal_attaches() -> None:
+    """A superscript ordinal suffix stays on its number ("4<sup>th</sup>" reads "4th")."""
+    text = _blocks("<p>It ranked 4<sup>th</sup> in the 21<sup>st</sup> century.</p>")[0].payload["text"]
+    if text != "It ranked 4th in the 21st century.":
+        _fail(f"ordinal: {text!r}")
+
+
+def test_table_reads_rows_with_headings() -> None:
+    """A data table with a bold heading row reads each row as label plus headed values."""
+    html = (
+        "<p>Before.</p><table>"
+        "<tr><td><b>Statistic</b></td><td><b>Singapore</b></td><td><b>Sweden</b></td></tr>"
+        "<tr><td><b>Homicide Rate</b></td><td>4<sup>th</sup> (0.3)</td><td>28<sup>th</sup> (1.0)</td></tr>"
+        "<tr><td>Literacy Rate</td><td>82nd</td><td></td></tr>"
+        "</table><p>After.</p>"
+    )
+    body = serialize_flat(_blocks(html))
+    expected = (
+        "Before.\n\n\u2756 The author includes a table. "
+        "Homicide Rate: Singapore 4th (0.3), Sweden 28th (1.0). Literacy Rate: Singapore 82nd.\n\nAfter."
+    )
+    if body != expected:
+        _fail(f"table: {body!r}")
+
+
+def test_two_column_table_reads_label_value_pairs() -> None:
+    """A 2-column table keeps its first row and reads "label: value"; a cell image follows it."""
+    html = (
+        '<table><tr><td><b>Cardinal Angelo Scola</b></td><td><img src="https://x.test/scola.png"></td></tr>'
+        "<tr><td><b>Country of Origin:</b></td><td>Italy</td></tr></table>"
+    )
+    blocks = _blocks(html)
+    if [b.type for b in blocks] != ["table", "image"]:
+        _fail(f"pair table blocks: {[b.type for b in blocks]!r}")
+    if blocks[0].payload["text"] != "Cardinal Angelo Scola. Country of Origin: Italy.":
+        _fail(f"pair table text: {blocks[0].payload['text']!r}")
+    if blocks[1].payload["src"] != "https://x.test/scola.png":
+        _fail(f"table image: {blocks[1].payload!r}")
+
+
+def test_layout_table_is_walked_as_text() -> None:
+    """A table whose cells hold paragraphs (an email layout table) is not read as a table."""
+    html = (
+        "<table><tr><td><p>First para.</p></td><td><p>Second para.</p></td></tr><tr><td>x</td><td>y</td></tr></table>"
+    )
+    got = [(b.type, b.payload.get("text")) for b in _blocks(html)]
+    if got != [("text", "First para."), ("text", "Second para.")]:
+        _fail(f"layout table: {got!r}")
+
+
 def run_tests() -> None:
     """Run all structural-extractor tests."""
     test_region_prefers_substack_body()
@@ -635,6 +707,11 @@ def run_tests() -> None:
     test_small_percent_width_images_are_decorative()
     test_find_content_region_matched_signals_fallback()
     test_find_content_region_beehiiv()
+    test_br_lines_stay_separate()
+    test_superscript_ordinal_attaches()
+    test_table_reads_rows_with_headings()
+    test_two_column_table_reads_label_value_pairs()
+    test_layout_table_is_walked_as_text()
     logging.info("all structural-extractor tests passed")
 
 

@@ -137,31 +137,76 @@ _ATTACH_RIGHT = frozenset("([{\u201c\u2018$")
 _SPOKEN_STRING_TYPES = (NavigableString, CData)
 
 
-def _spoken_text(el: Tag) -> str:
-    """Flatten an element's text, spacing text nodes the way a reader sees them.
+_ORDINAL_SUFFIX_RE = re.compile(r"st|nd|rd|th", re.IGNORECASE)
+
+
+def _is_ordinal_suffix(node: object, text: str, out: str) -> bool:
+    """Whether ``text`` is a superscript ordinal suffix following a digit ("4<sup>th</sup>").
+
+    Returns:
+        True when the suffix should attach to the preceding number without a space.
+
+    """
+    parent = getattr(node, "parent", None)
+    return (
+        isinstance(parent, Tag)
+        and parent.name == "sup"
+        and out[-1:].isdigit()
+        and _ORDINAL_SUFFIX_RE.fullmatch(text.strip()) is not None
+    )
+
+
+def _spoken_lines(el: Tag) -> list[str]:
+    """Flatten an element's text into the lines a reader sees, split at ``<br>``.
 
     ``get_text(" ")`` puts a space between *every* pair of text nodes, which keeps
     adjacent links from fusing ("<a>foo</a><a>bar</a>") but also detaches punctuation
     from inline markup (a link followed by a possessive or comma, or curly quotes around
     an emphasised title, come out as "Acme 's" / "Main Street ,"). Here a space is inserted
     at a node boundary only when neither side already has whitespace and the boundary isn't
-    punctuation that hugs its neighbour.
+    punctuation that hugs its neighbour (or an ordinal suffix in a superscript).
+
+    Lines broken only by ``<br>`` (verse, a headline over its summary, a signature block)
+    stay separate, so each can end in its own pause instead of running into the next.
 
     Returns:
-        The element's text with whitespace collapsed.
+        The non-empty lines, each with whitespace collapsed.
 
     """
+    lines: list[str] = []
     out = ""
     for node in el.descendants:
+        if isinstance(node, Tag):
+            if node.name == "br":
+                lines.append(out)
+                out = ""
+            continue
         if type(node) not in _SPOKEN_STRING_TYPES:
             continue
         text = str(node)
         if not text:
             continue
-        if out and not (out[-1].isspace() or text[0].isspace() or text[0] in _ATTACH_LEFT or out[-1] in _ATTACH_RIGHT):
+        if out and not (
+            out[-1].isspace()
+            or text[0].isspace()
+            or text[0] in _ATTACH_LEFT
+            or out[-1] in _ATTACH_RIGHT
+            or _is_ordinal_suffix(node, text, out)
+        ):
             out += " "
         out += text
-    return " ".join(out.split())
+    lines.append(out)
+    return [" ".join(line.split()) for line in lines if line.strip()]
+
+
+def _spoken_text(el: Tag) -> str:
+    """Flatten an element's text onto one line (see :func:`_spoken_lines`).
+
+    Returns:
+        The element's text with whitespace collapsed.
+
+    """
+    return " ".join(_spoken_lines(el))
 
 
 _WIDTH_DIGITS_RE = re.compile(r"^\s*(\d+)")
@@ -485,6 +530,76 @@ def _is_question_continuation(text: str) -> bool:
 _TEXT_TAGS = ("p", "li", "blockquote", "h1", "h2", "h3", "h4")
 
 
+# A table with at least this many columns reads its first row as column headings
+# (2-column tables are label/value pairs, whose first row is usually data).
+_MIN_HEADER_COLUMNS = 3
+
+
+def _is_header_row(row: Tag) -> bool:
+    """Whether a table row holds column headings (``<th>``, ``<thead>``, or all-bold cells).
+
+    Returns:
+        True when every non-empty cell is a heading.
+
+    """
+    if row.find_parent("thead") is not None:
+        return True
+    cells = [c for c in row.find_all(["td", "th"]) if _spoken_text(c)]
+    if not cells:
+        return False
+    if all(c.name == "th" for c in cells):
+        return True
+    return all(_spoken_text(c) == " ".join(_spoken_text(b) for b in c.find_all(["b", "strong"])) for c in cells)
+
+
+def _row_sentence(cells: list[str], header: list[str]) -> str:
+    """Read one table row as a sentence: its label, then each value under its heading.
+
+    Returns:
+        E.g. "Homicide Rate: Singapore 4th (0.3), Hong Kong 3rd (0.2)." or "Country: Italy."
+
+    """
+    label, *values = cells
+    parts: list[str] = []
+    for idx, value in enumerate(values, start=1):
+        if not value:
+            continue
+        heading = header[idx] if idx < len(header) else ""
+        parts.append(f"{heading} {value}" if heading else value)
+    label = label.rstrip(":").strip()
+    body = ", ".join(parts)
+    sentence = f"{label}: {body}" if label and body else label or body
+    return sentence if sentence[-1:] in {".", "!", "?"} else f"{sentence}."
+
+
+def extract_table(el: Tag) -> Block | None:
+    """Extract a data table into a ``table`` Block read row by row.
+
+    Layout tables (nested tables, or cells holding paragraphs/lists/headings, as email
+    templates use) and tables under 2 rows by 2 columns return None, so their contents
+    are walked as ordinary text instead.
+
+    Returns:
+        A ``table`` Block whose ``text`` payload is one sentence per row, or None.
+
+    """
+    if el.find("table") is not None or el.find(_TEXT_TAGS) is not None:
+        return None
+    rows: list[tuple[Tag, list[str]]] = []
+    for tr in el.find_all("tr"):
+        cells = [_spoken_text(c) for c in tr.find_all(["td", "th"])]
+        if any(cells):
+            rows.append((tr, cells))
+    if len(rows) < 2 or max(len(cells) for _, cells in rows) < 2:
+        return None
+    header: list[str] = []
+    if len(rows[0][1]) >= _MIN_HEADER_COLUMNS and _is_header_row(rows[0][0]):
+        header = rows[0][1]
+        rows = rows[1:]
+    text = " ".join(_row_sentence(cells, header) for _, cells in rows)
+    return Block(type="table", payload={"text": text})
+
+
 def extract_blocks(region: Tag) -> list[Block]:
     """Walk ``region`` in document order into text and tweet Blocks.
 
@@ -537,6 +652,16 @@ def extract_blocks(region: Tag) -> list[Block]:
                 previous_text = None
                 in_question_run = False
             continue
+        if el.name == "table":
+            table = extract_table(el)
+            if table is not None:
+                blocks.append(table)
+                consumed.add(id(el))
+                # Images inside the table (e.g. a portrait cell) follow it as their own asides.
+                blocks.extend(extract_image(img) for img in el.find_all("img") if not _is_decorative(img))
+                previous_text = None
+                in_question_run = False
+            continue
         if el.name == "div":
             classes = _classes(el)
             if "embedded-post-wrap" in classes or "embedded-post" in classes:
@@ -555,7 +680,10 @@ def extract_blocks(region: Tag) -> list[Block]:
         ref_numbers = [r.get_text().translate(_SUPERSCRIPT).strip() for r in _footnote_refs(el)]
         for r in _footnote_refs(el):
             r.decompose()  # drop the superscript glyph so it is not read aloud
-        text = _spoken_text(el)
+        lines = _spoken_lines(el)
+        if len(lines) > 1:  # a spacer line of bare punctuation between <br>s is not spoken
+            lines = [line for line in lines if any(ch.isalnum() for ch in line)] or lines
+        text = " ".join(lines)
         if not text or text == previous_text:
             continue
         previous_text = text
@@ -574,7 +702,8 @@ def extract_blocks(region: Tag) -> list[Block]:
         else:
             is_quote = False
             in_question_run = False
-        blocks.append(Block(type="quote" if is_quote else "text", payload={"text": text}))
+        kind = "quote" if is_quote else "text"
+        blocks.extend(Block(type=kind, payload={"text": line}) for line in lines)
         for number in ref_numbers:  # inline each cited footnote right after its paragraph
             footnote = _resolve_footnote(number, footnote_defs, footnote_order, referenced)
             if footnote is not None:

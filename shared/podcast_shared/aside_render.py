@@ -65,6 +65,9 @@ def _render_own(block: Block) -> str:
         noun = "a video" if block.type == "video" else "an audio clip"
         title = block.payload.get("title", "")
         return f"The author shares {noun} titled '{title}'." if title else f"The author shares {noun}."
+    if block.type == "table":
+        text = block.payload.get("text", "")
+        return f"The author includes a table. {text}" if text else "The author includes a table."
     if block.type == "code":
         return "The author includes a code block."
     if block.type == "footnote":
