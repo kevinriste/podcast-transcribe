@@ -99,7 +99,7 @@ def is_tts_outage(exc: BaseException) -> bool:
     return False
 
 
-_PAUSE_MS = 400
+PAUSE_MS = 400
 _MAX_TTS_BYTES = 4800  # Google Cloud TTS hard limit is 5000 bytes per request
 
 _QUOTE_RE = re.compile(r"^QUOTE\s+(.+?):\s*(.*)$", re.DOTALL)
@@ -330,7 +330,7 @@ def render_utterances(
 
     """
     client = texttospeech.TextToSpeechClient()
-    pause = AudioSegment.silent(duration=_PAUSE_MS)
+    pause = AudioSegment.silent(duration=PAUSE_MS)
     out: list[AudioSegment] = []
     for text, speaker in utterances:
         audio = _synth(client, text, assign_voice(speaker, narrator_voice, quote_pool, aside_voice))

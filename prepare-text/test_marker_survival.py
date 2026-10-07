@@ -9,7 +9,7 @@ import logging
 import pathlib
 import tempfile
 
-from podcast_shared import ASIDE_MARKER, BLOCKQUOTE_MARKER, split_metadata
+from podcast_shared import ASIDE_MARKER, BLOCKQUOTE_MARKER, LISTENING_TIME_MARKER, split_intro, split_metadata
 
 import prepare_text as pt
 
@@ -59,7 +59,33 @@ def check_aside_marker_survives() -> None:
     _require(body.count(ASIDE_MARKER) == 1, f"aside marker count changed: {body!r}")
 
 
+def check_listening_time_marker_after_header() -> None:
+    """Put the listening-time marker right after the author/title header prepare-text adds."""
+    raw = "META_FROM: Some Author\nMETA_TITLE: A Post\nMETA_INTAKE_TYPE: email\n\nThe body starts here."
+    with tempfile.TemporaryDirectory() as d:
+        body = _run_process(raw, pathlib.Path(d))
+    _require(body.count(LISTENING_TIME_MARKER) == 1, f"expected one listening-time marker: {body!r}")
+    intro, rest = split_intro(body)
+    _require(intro == "Some Author.\nA Post.", f"intro should be the header: {intro!r}")
+    _require(rest.startswith("The body starts here"), f"body should follow the marker: {rest!r}")
+
+
+def check_listening_time_marker_after_existing_byline() -> None:
+    """Put the marker after the body's own title line when the body already leads with it."""
+    raw = (
+        "META_FROM: Example Blog\nMETA_TITLE: A Post\nMETA_INTAKE_TYPE: archive\n\n"
+        "A Post\nOriginally published: 2013-05-12\n\nThe body starts here."
+    )
+    with tempfile.TemporaryDirectory() as d:
+        body = _run_process(raw, pathlib.Path(d))
+    intro, rest = split_intro(body)
+    _require(intro.rstrip(".") == "A Post", f"intro should be the existing title line: {intro!r}")
+    _require(rest.startswith("Originally published"), f"body should follow the marker: {rest!r}")
+
+
 if __name__ == "__main__":
     check_marker_survives_and_cleaning_applies()
     check_aside_marker_survives()
+    check_listening_time_marker_after_header()
+    check_listening_time_marker_after_existing_byline()
     logging.info("Marker survival tests passed.")

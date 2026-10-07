@@ -23,6 +23,11 @@ from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
 from podcast_shared.json_narrow import is_json_array as is_json_array
 from podcast_shared.json_narrow import is_json_object as is_json_object
+from podcast_shared.listening_time import LISTENING_TIME_MARKER as LISTENING_TIME_MARKER
+from podcast_shared.listening_time import listening_speed as listening_speed
+from podcast_shared.listening_time import listening_time_phrase as listening_time_phrase
+from podcast_shared.listening_time import mark_intro_end as mark_intro_end
+from podcast_shared.listening_time import split_intro as split_intro
 from podcast_shared.openai_routing import generate_text as generate_text
 from podcast_shared.podly import enable_post_in_podly as enable_post_in_podly
 from podcast_shared.podly import get_podly_config as get_podly_config

@@ -24,8 +24,10 @@ import yaml
 from bs4 import BeautifulSoup
 from podcast_shared import (
     ASIDE_MARKER,
+    LISTENING_TIME_MARKER,
     enable_post_in_podly,
     generate_text,
+    mark_intro_end,
     send_gotify_notification,
     split_metadata,
 )
@@ -1079,37 +1081,42 @@ def _norm_header(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]+", " ", cleaned).split()).lower()
 
 
-def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
-    """Check if the body text already begins with the author byline or headline.
+def byline_line_count(body: str, from_name: str, title: str) -> int:
+    """Count the leading body lines that are the author byline and/or headline.
 
     Prevents double-byline at the start of articles (e.g. RSS feeds where the extracted
-    body already starts with author/headline, or blog archives where line 0 is the post title).
+    body already starts with author/headline, or blog archives where line 0 is the post title),
+    and tells the caller where that existing intro ends.
 
     Returns:
-        True if the leading lines match the author or headline; False otherwise.
+        2 if the first two non-blank lines are the author then the title, 1 if the first
+        line alone is the author, the title, or both, and 0 otherwise.
 
     """
-    if not body.strip():
-        return False
     lines = [_norm_header(ln) for ln in body.splitlines() if ln.strip()][:2]
     if not lines:
-        return False
+        return 0
 
     norm_from = _norm_header(from_name) if from_name else ""
     norm_title = _norm_header(title) if title else ""
 
     l0 = lines[0]
-    # Check if the very first line is exactly the title or author
-    if norm_title and l0 in {norm_title, f"{norm_title} by {norm_from}"}:
-        return True
-    if norm_from and l0 in {norm_from, f"by {norm_from}"}:
-        return True
-    if norm_from and norm_title and l0 == f"{norm_from} {norm_title}":
-        return True
-    # Check if line 0 is author and line 1 is title
-    return bool(
-        len(lines) > 1 and norm_from and norm_title and l0 in {norm_from, f"by {norm_from}"} and lines[1] == norm_title
-    )
+    author_line = bool(norm_from) and l0 in {norm_from, f"by {norm_from}"}
+    if author_line and norm_title and len(lines) > 1 and lines[1] == norm_title:
+        return 2
+    if author_line or (norm_title and l0 in {norm_title, f"{norm_title} by {norm_from}"}):
+        return 1
+    return int(bool(norm_from and norm_title and l0 == f"{norm_from} {norm_title}"))
+
+
+def body_leads_with_byline(body: str, from_name: str, title: str) -> bool:
+    """Check if the body text already begins with the author byline or headline.
+
+    Returns:
+        True if the leading lines match the author or headline; False otherwise.
+
+    """
+    return byline_line_count(body, from_name, title) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -1320,8 +1327,13 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
         title = metadata.get("title", "").strip()
         header = (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
         footer = "\n\n" + (f"{from_name}.\n" if from_name else "") + (f"{title}.\n" if title else "")
-        if header and not body_leads_with_byline(cleaned_text, from_name, title):
-            cleaned_text = header + "\n" + cleaned_text
+        # Mark where the spoken intro ends so text-to-speech can announce the listening
+        # time right after it: after our own header, or after the body's existing byline.
+        intro_lines = byline_line_count(cleaned_text, from_name, title)
+        if header and not intro_lines:
+            cleaned_text = header + LISTENING_TIME_MARKER + "\n\n" + cleaned_text
+        else:
+            cleaned_text = mark_intro_end(cleaned_text, intro_lines)
         if from_name or title:
             cleaned_text = cleaned_text.rstrip() + footer
 

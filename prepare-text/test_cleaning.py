@@ -79,6 +79,19 @@ def test_byline_deduplication() -> None:
     if pt.body_leads_with_byline(body_mentioning_title, "Sam Writer from Example Letter", "Movies of the 1970s"):
         _fail("falsely detected leading title when title appears inside opening prose sentence")
 
+    # Line counts tell prepare-text where the existing intro ends
+    good_guys = ("Jane Author", "Who Are the Good Guys?")
+    poetry = ("Example Blog", "Can Skeptics Appreciate Poetry?")
+    for body, (from_name, title), expected in (
+        (body_with_author, good_guys, 2),
+        ("Jane Author\nUnrelated line", good_guys, 1),
+        (body_with_title_only, poetry, 1),
+        (body_plain, good_guys, 0),
+    ):
+        got = pt.byline_line_count(body, from_name, title)
+        if got != expected:
+            _fail(f"byline_line_count({body!r}) = {got}, expected {expected}")
+
 
 def test_period_runs_after_removals() -> None:
     """Text removals with line-end anchors match because period append runs after removals."""

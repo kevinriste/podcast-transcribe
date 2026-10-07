@@ -15,7 +15,7 @@ import logging
 import pathlib
 
 from google.genai import types as genai_types
-from podcast_shared import get_gemini_client, split_metadata
+from podcast_shared import get_gemini_client, split_intro, split_metadata
 from pydub import AudioSegment
 
 from text_to_speech import (
@@ -26,6 +26,8 @@ from text_to_speech import (
     GEMINI_TTS_MODELS,
     chunk_text,
     finalize_episode,
+    join_segments,
+    with_listening_time,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -100,8 +102,15 @@ def main() -> None:
     if not content_text:
         msg = f"{input_path.name} has no content"
         raise SystemExit(msg)
-    segments = synthesize_gemini_sync(content_text, GEMINI_TTS_MODELS[engine], voice, style_prompt)
-    finalize_episode(input_path.stem, metadata, content_text, segments, annotation=f"{engine} {voice}")
+    intro, body = split_intro(content_text)
+    model = GEMINI_TTS_MODELS[engine]
+    segments = with_listening_time(
+        synthesize_gemini_sync(intro, model, voice, style_prompt),
+        synthesize_gemini_sync(body, model, voice, style_prompt),
+        lambda phrase: join_segments(synthesize_gemini_sync(phrase, model, voice, style_prompt)),
+    )
+    clean_content = "\n\n".join(part for part in (intro, body) if part)
+    finalize_episode(input_path.stem, metadata, clean_content, segments, annotation=f"{engine} {voice}")
 
 
 if __name__ == "__main__":

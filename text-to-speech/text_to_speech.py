@@ -15,6 +15,7 @@ import operator
 import pathlib
 import re
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TypedDict
@@ -28,9 +29,12 @@ from podcast_shared import (
     generate_summary,
     get_gemini_client,
     is_json_object,
+    listening_speed,
+    listening_time_phrase,
     pub_date_from_filename,
     send_gotify_notification,
     set_file_pub_date,
+    split_intro,
     split_metadata,
 )
 from pydub import AudioSegment
@@ -38,6 +42,7 @@ from pydub import AudioSegment
 from multivoice import (
     DEFAULT_NARRATOR_VOICE,
     DEFAULT_QUOTE_POOL,
+    PAUSE_MS,
     TTS_RETRY,
     TTS_TIMEOUT,
     is_tts_outage,
@@ -204,6 +209,9 @@ class BatchState(TypedDict, total=False):
     voice: str
     txt_file: str
     submitted_at: str
+    # Leading requests that hold the author/title intro; the listening time goes after them.
+    intro_chunks: int
+    style_prompt: str
 
 
 def load_narrator_rules() -> list[NarratorRule]:
@@ -353,7 +361,114 @@ def synthesize_wavenet(content_text: str) -> list[AudioSegment]:
     return segments
 
 
-def submit_gemini_batch(incoming_filename: pathlib.Path, content_text: str, rule: NarratorRule) -> None:
+def join_segments(segments: list[AudioSegment]) -> AudioSegment | None:
+    """Concatenate audio segments.
+
+    Returns:
+        The joined audio, or None when there are no segments.
+
+    """
+    if not segments:
+        return None
+    return functools.reduce(operator.add, segments)  # pyright: ignore[reportAny]
+
+
+def with_listening_time(
+    intro: list[AudioSegment],
+    body: list[AudioSegment],
+    synth_phrase: Callable[[str], AudioSegment | None],
+    pause_ms: int = 0,
+) -> list[AudioSegment]:
+    """Splice a spoken "Listening time: ..." sentence between the intro and the body.
+
+    The time quoted is the whole episode's length, the sentence included, divided by
+    LISTENING_SPEED. The sentence is synthesized once from the length without it; if
+    adding its own length changes the spoken time, it is synthesized once more. When it
+    can't be synthesized the episode goes out without it.
+
+    Returns:
+        The episode's audio segments in order, with ``pause_ms`` of silence around the
+        sentence (paths that pause between utterances pass their pause length).
+
+    """
+    gap = [AudioSegment.silent(duration=pause_ms)] if pause_ms else []
+    head = [*intro, *gap] if intro else []
+    tail = [*gap, *body] if body else []
+    base_ms = sum(len(segment) for segment in [*head, *tail])
+    speed = listening_speed()
+    phrase = listening_time_phrase(base_ms, speed)
+    clip = synth_phrase(phrase)
+    if clip is not None:
+        final_phrase = listening_time_phrase(base_ms + len(clip), speed)
+        if final_phrase != phrase:
+            clip = synth_phrase(final_phrase) or clip
+            phrase = final_phrase
+    if clip is None:
+        logging.warning("Could not synthesize the listening time; publishing without it")
+        return [*intro, *gap, *body] if intro and body else [*intro, *body]
+    logging.info("Announcing %r", phrase)
+    return [*head, clip, *tail]
+
+
+def synthesize_wavenet_episode(intro: str, body: str) -> list[AudioSegment]:
+    """Synthesize an episode's intro and body via WaveNet with the listening time between them.
+
+    Returns:
+        The episode's audio segments in order.
+
+    """
+    return with_listening_time(
+        synthesize_wavenet(intro),
+        synthesize_wavenet(body),
+        lambda phrase: join_segments(synthesize_wavenet(phrase)),
+    )
+
+
+def _gemini_speech_config(voice: str) -> genai_types.GenerateContentConfig:
+    return genai_types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=genai_types.SpeechConfig(
+            voice_config=genai_types.VoiceConfig(
+                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=voice),
+            ),
+        ),
+    )
+
+
+def _gemini_pcm_segment(data: bytes) -> AudioSegment:
+    return AudioSegment(data=data, sample_width=GEMINI_PCM_SAMPLE_WIDTH, frame_rate=GEMINI_PCM_FRAME_RATE, channels=1)
+
+
+def synthesize_gemini_phrase(text: str, model: str, voice: str, style_prompt: str) -> AudioSegment | None:
+    """Synthesize one short sentence synchronously in a batch episode's Gemini voice.
+
+    Used for the listening time, which can only be worked out once the batch audio is
+    back. Falls back to WaveNet if the Gemini call fails, so a flaky sentence never
+    holds up a finished episode.
+
+    Returns:
+        The sentence's audio, or None if neither engine produced any.
+
+    """
+    try:
+        response = get_gemini_client().models.generate_content(  # pyright: ignore[reportUnknownMemberType]
+            model=model,
+            contents=f"{style_prompt}\n\n{text}" if style_prompt else text,
+            config=_gemini_speech_config(voice),
+        )
+        candidates = response.candidates
+        content = candidates[0].content if candidates else None
+        parts = content.parts if content else None
+        data = parts[0].inline_data.data if parts and parts[0].inline_data else None
+        if data:
+            return _gemini_pcm_segment(data)
+        logging.warning("Gemini returned no audio for %r; using WaveNet", text)
+    except Exception:
+        logging.exception("Gemini synthesis of %r failed; using WaveNet", text)
+    return join_segments(synthesize_wavenet(text))
+
+
+def submit_gemini_batch(incoming_filename: pathlib.Path, intro: str, body: str, rule: NarratorRule) -> None:
     """Submit one Gemini Batch API TTS job for a text file and park the file in batch-pending/.
 
     Raises:
@@ -361,15 +476,10 @@ def submit_gemini_batch(incoming_filename: pathlib.Path, content_text: str, rule
 
     """
     name = incoming_filename.stem
-    chunks = chunk_text(content_text, GEMINI_MIN_STEP_BYTES, GEMINI_MAX_STEP_BYTES)
-    generate_config = genai_types.GenerateContentConfig(
-        response_modalities=["AUDIO"],
-        speech_config=genai_types.SpeechConfig(
-            voice_config=genai_types.VoiceConfig(
-                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=rule.voice),
-            ),
-        ),
-    )
+    # The intro is chunked on its own so its audio ends where the listening time goes.
+    intro_chunks = chunk_text(intro, GEMINI_MIN_STEP_BYTES, GEMINI_MAX_STEP_BYTES)
+    chunks = intro_chunks + chunk_text(body, GEMINI_MIN_STEP_BYTES, GEMINI_MAX_STEP_BYTES)
+    generate_config = _gemini_speech_config(rule.voice)
     requests = [
         genai_types.InlinedRequest(
             contents=[
@@ -404,6 +514,8 @@ def submit_gemini_batch(incoming_filename: pathlib.Path, content_text: str, rule
         "voice": rule.voice,
         "txt_file": held_txt.name,
         "submitted_at": datetime.now(tz=UTC).isoformat(),
+        "intro_chunks": len(intro_chunks),
+        "style_prompt": rule.style_prompt,
     }
     state_path = pending_dir / f"{name}.json"
     _ = state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -434,14 +546,7 @@ def decode_batch_audio(job: genai_types.BatchJob) -> DecodedBatch | None:
         if not data:
             logging.error("Batch job %s chunk %d has no audio data", job.name, idx)
             return None
-        decoded.segments.append(
-            AudioSegment(
-                data=data,
-                sample_width=GEMINI_PCM_SAMPLE_WIDTH,
-                frame_rate=GEMINI_PCM_FRAME_RATE,
-                channels=1,
-            )
-        )
+        decoded.segments.append(_gemini_pcm_segment(data))
         usage = response.usage_metadata if response else None
         if usage:
             decoded.prompt_tokens += usage.prompt_token_count or 0
@@ -515,21 +620,29 @@ def _collect_batch_job(client: genai.Client, pending_dir: pathlib.Path, state_pa
         logging.info("Batch job %s still %s", job_name, job.state)
         return
     metadata, content_text = split_metadata(held_txt.read_text(encoding="utf-8"))
+    intro, body = (strip_markers(part) for part in split_intro(content_text))
+    clean_content = "\n\n".join(part for part in (intro, body) if part)
     name = held_txt.stem
     segments: list[AudioSegment] | None = None
     if job.state == genai_types.JobState.JOB_STATE_SUCCEEDED:
         decoded = decode_batch_audio(job)
         if decoded is not None:
-            segments = decoded.segments
             record_usage_stats(name, state, decoded)
+            intro_count = state.get("intro_chunks", 0)
+            model, voice, style_prompt = state.get("model", ""), state.get("voice", ""), state.get("style_prompt", "")
+            segments = with_listening_time(
+                decoded.segments[:intro_count],
+                decoded.segments[intro_count:],
+                lambda phrase: synthesize_gemini_phrase(phrase, model, voice, style_prompt),
+            )
     if segments is None:
         logging.error("Batch job %s ended in state %s; falling back to Wavenet", job_name, job.state)
         send_gotify_notification(
             "TTS batch job failed",
             f"{name}: job {job_name} ended in state {job.state}; falling back to Wavenet.",
         )
-        segments = synthesize_wavenet(content_text)
-    finalize_episode(name, metadata, content_text, segments)
+        segments = synthesize_wavenet_episode(intro, body)
+    finalize_episode(name, metadata, clean_content, segments)
     held_txt.unlink()
     state_path.unlink()
 
@@ -669,6 +782,10 @@ def finalize_episode(
     filename and ID3 title so audition renders are distinguishable in the feed.
     ``summary_override`` supplies a precomputed description summary (used by comment
     episodes to lead their show notes with the original article's summary).
+
+    Raises:
+        ValueError: If there are no audio segments to stitch.
+
     """
     meta_from = metadata.get("from", "").strip()
     meta_title = metadata.get("title", "").strip()
@@ -689,7 +806,10 @@ def finalize_episode(
     )
 
     logging.info("Stitching together %d audio segments for %s", len(segments), name)
-    audio: AudioSegment = functools.reduce(operator.add, segments)  # pyright: ignore[reportAny]
+    audio = join_segments(segments)
+    if audio is None:
+        msg = f"No audio segments for {name}"
+        raise ValueError(msg)
 
     current_datetime = datetime.now(tz=UTC).strftime("%Y%m%d")
     if annotation:
@@ -776,17 +896,25 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
         logging.info("Routing %s to multi-voice comment synthesis", incoming_path.name)
         narrator_voice, quote_pool, _ = load_comment_voices()
         article_summary = metadata.get("article_summary", "").strip()
-        utterances = plan_utterances(
-            parse_segments(content_text),
-            metadata.get("from", "").strip(),
-            metadata.get("title", "").strip(),
-            article_summary,
-        )
-        segments = render_utterances(utterances, narrator_voice, quote_pool)
-        if not segments:
+        from_name, title = metadata.get("from", "").strip(), metadata.get("title", "").strip()
+        utterances = plan_utterances(parse_segments(content_text), from_name, title, article_summary)
+        # plan_utterances leads with the author/title header utterance whenever there is one.
+        intro_count = 1 if (from_name or title) else 0
+
+        def render_comment(utts: list[tuple[str, str]]) -> list[AudioSegment]:
+            return render_utterances(utts, narrator_voice, quote_pool)
+
+        body_segments = render_comment(utterances[intro_count:])
+        if not body_segments:
             logging.error("No audio synthesized for comment episode %s; skipping", incoming_path.name)
             send_gotify_notification("Comment episode failed", f"No audio for {incoming_path.name}")
         else:
+            segments = with_listening_time(
+                render_comment(utterances[:intro_count]),
+                body_segments,
+                lambda phrase: join_segments(render_comment([(phrase, "NARRATOR")])),
+                PAUSE_MS,
+            )
             finalize_episode(name, metadata, content_text, segments, summary_override=article_summary)
         incoming_path.unlink()
         return
@@ -794,8 +922,12 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
     # Articles that embed block quotes get the same multi-voice treatment as comment
     # episodes when they clear the density gate; the marker is stripped for every other
     # path so it is never spoken.
-    plan = article_multivoice_plan(content_text, rule.engine)
-    clean_content = strip_markers(content_text)
+    # The intro (author/title) is synthesized apart from the body so the listening time
+    # can be spliced in right after it.
+    raw_intro, raw_body = split_intro(content_text)
+    plan = article_multivoice_plan(raw_body, rule.engine)
+    intro, body = strip_markers(raw_intro), strip_markers(raw_body)
+    clean_content = "\n\n".join(part for part in (intro, body) if part)
     if plan is not None:
         aside_count = sum(1 for _, speaker in plan if speaker == "ASIDE")
         quote_count = sum(1 for _, speaker in plan if speaker not in {"NARRATOR", "ASIDE"})
@@ -806,8 +938,18 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
             aside_count,
         )
         narrator_voice, quote_pool, aside_voice = load_comment_voices()
-        segments = render_utterances(plan, narrator_voice, quote_pool, aside_voice)
-        if segments:
+        body_segments = render_utterances(plan, narrator_voice, quote_pool, aside_voice)
+        if body_segments:
+
+            def narrate(text: str) -> list[AudioSegment]:
+                return render_utterances([(text, "NARRATOR")], narrator_voice, quote_pool)
+
+            segments = with_listening_time(
+                narrate(intro) if intro else [],
+                body_segments,
+                lambda phrase: join_segments(narrate(phrase)),
+                PAUSE_MS,
+            )
             finalize_episode(name, metadata, clean_content, segments)
             incoming_path.unlink()
             return
@@ -815,9 +957,9 @@ def text_to_speech(incoming_filename: str | pathlib.Path, rules: list[NarratorRu
         send_gotify_notification("Article multi-voice failed", f"Falling back to single voice for {incoming_path.name}")
     if rule.engine in GEMINI_TTS_MODELS:
         logging.info("Routing %s to %s (voice %s)", incoming_path.name, rule.engine, rule.voice)
-        submit_gemini_batch(incoming_path, clean_content, rule)
+        submit_gemini_batch(incoming_path, intro, body, rule)
         return
-    segments = synthesize_wavenet(clean_content)
+    segments = synthesize_wavenet_episode(intro, body)
     finalize_episode(name, metadata, clean_content, segments)
     logging.info("Removing original text file")
     incoming_path.unlink()

@@ -129,6 +129,7 @@ Processes raw files from `prepare-text/text-input-raw/` according to rules in `p
   - Applies general cleaning steps (URL stripping, bracket removal, whitespace collapse, Beehiiv footer/anchor cleanup).
   - Executes regex text removals (`text_removals`) and substitutions (`text_replacements`).
   - `archive-comments` episodes bypass content-mutating cleaning steps to preserve load-bearing speaker tags.
+- Prepends an author/title header unless the body already leads with its byline, and writes a `LISTENING_TIME_MARKER` line where that intro ends (`shared/podcast_shared/listening_time.py`).
 - Archives raw and cleaned files under `prepare-text/text-input-archive/`. Writes output to `prepare-text/text-input-cleaned/`.
 
 ### 5. `text-to-speech/text_to_speech.py` (Synthesis & ID3 Tagging)
@@ -137,6 +138,7 @@ Reads `prepare-text/text-input-cleaned/*.txt`, parses `META_` headers, and route
   - `wavenet` (default): Chunks into 3–5 kB segments and calls Google Cloud TTS (`en-US-Wavenet-F`) synchronously. If the article contains at least one `BLOCKQUOTE_MARKER`, it is rendered multi-voice (narrator + deterministically assigned quote voices from `multivoice.py`). If quote-free, markers are stripped for single-voice reading.
   - `gemini-flash` (`gemini-2.5-flash-preview-tts`), `gemini-pro` (`gemini-2.5-pro-preview-tts`), `gemini-3.1-flash` (`gemini-3.1-flash-tts-preview`): Chunks into 8–12 kB segments and submits as a Gemini Batch API job (~50% audio token discount). Parked in `text-to-speech/batch-pending/` with a state JSON. Finished batch jobs are collected on subsequent runs; failed batch jobs send a Gotify alert and fall back to WaveNet.
   - Comment episodes: Rendered multi-voice via Google Cloud TTS using `comment_voices` from `narrators.yaml` (narrator voice, quote voice pool, aside voice).
+- **Listening time**: Every TTS episode (not YouTube) announces "Listening time: 2 minutes, 30 seconds." right after its author/title intro. The intro and body are synthesized separately (split at `LISTENING_TIME_MARKER`; no marker means the announcement goes first), and the quoted time is the whole episode's length, the announcement included, divided by `LISTENING_SPEED`. Comment and multi-voice episodes announce in the narrator voice. Gemini batch episodes record their intro chunk count in the batch state and announce with one synchronous Gemini call in the same voice when collected, falling back to WaveNet if that call fails.
 - **Summaries**:
   - Generated via Gemini `gemini-3.1-flash-lite` (`SUMMARY_MODEL`) in 2–3 concise sentences.
 - **ID3 Tags & Descriptions**:
@@ -216,6 +218,7 @@ Configured in gitignored root `.env` (template in `.env.example`):
 | `PODCAST_DOMAIN_PRIMARY` | Primary domain for Dropcaster RSS feed URLs. Required: `process.sh` fails before regenerating feeds if it is empty. |
 | `PODCAST_DOMAIN_SECONDARY` | Secondary domain for feed mirrors. |
 | `PODCAST_RETENTION_WEEKS` | Weeks of audio to keep in topical feed before archiving (default `8`). |
+| `LISTENING_SPEED` | Playback speed the spoken listening time is quoted at (default `1.0`). |
 | `TZ` | Timezone for log timestamps (default `UTC`). |
 | `LOG_DIR` | Per-run execution log directory for `process-caller.sh`. |
 | `GMAIL_PRIMARY_ACCOUNT`, `CF_TOKEN`, `CF_ACCOUNT_ID` | Cloudflare DNS and email for ACME certificate renewal. |
