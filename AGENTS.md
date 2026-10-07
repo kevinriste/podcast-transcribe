@@ -114,6 +114,7 @@ Polls feeds configured in `rss/feeds.yaml` (`feeds.example.yaml`).
 ### 3. `archive/check-archive.py` (Intake)
 Scheduled intake that walks a blog/archive one post per day from `archive/posts.json` (gitignored), tracking state in `state.json`.
 - Source display name is configured in `archive/source.yaml` (`source.example.yaml`).
+- Optional `content_selector` (CSS selector for the post body element) scopes extraction to that element (`archive/article_extract.py`). Whole-page trafilatura can pick a sidebar over a very short post; within the element, trafilatura's output is used when it covers the element's text, else the element's own text, else image title/alt text. A selector that matches nothing raises (Gotify alert) instead of publishing junk.
 - When a post has sufficient comments, generates a multi-voice "Highlights From The Comments" companion episode (`archive/comment_briefing.py` using OpenAI Responses API model specified in `COMMENT_BRIEFING_MODEL`, default `gpt-5-mini`).
 - Writes to `prepare-text/text-input-raw/`.
 

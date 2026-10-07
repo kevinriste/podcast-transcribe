@@ -9,6 +9,7 @@ COMMENT_BRIEFING_MODEL environment variable.
 import logging
 import os
 import pathlib
+from dataclasses import dataclass
 from datetime import datetime
 
 import yaml
@@ -25,21 +26,32 @@ CONFIG_FILE = "source.yaml"
 DEFAULT_SOURCE_NAME = "Archive"
 
 
-def load_source_config() -> tuple[str, str]:
-    """Read the source display name and posts-file path from source.yaml.
+@dataclass(slots=True)
+class SourceConfig:
+    """Settings from source.yaml; see source.example.yaml."""
+
+    source_name: str
+    posts_file: str
+    content_selector: str
+
+
+def load_source_config() -> SourceConfig:
+    """Read the source display name, posts-file path and content selector from source.yaml.
 
     Returns:
-        (source_name, posts_file), falling back to defaults when the config
-        file is absent or a key is missing.
+        The source config, falling back to defaults when the config file is absent or a
+        key is missing (no content selector means whole-page extraction).
 
     """
     config_path = pathlib.Path(CONFIG_FILE)
     if not config_path.exists():
-        return DEFAULT_SOURCE_NAME, "posts.json"
+        return SourceConfig(DEFAULT_SOURCE_NAME, "posts.json", "")
     config: dict[str, object] = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    source_name = str(config.get("source_name") or DEFAULT_SOURCE_NAME)
-    posts_file = str(config.get("posts_file") or "posts.json")
-    return source_name, posts_file
+    return SourceConfig(
+        source_name=str(config.get("source_name") or DEFAULT_SOURCE_NAME),
+        posts_file=str(config.get("posts_file") or "posts.json"),
+        content_selector=str(config.get("content_selector") or ""),
+    )
 
 
 def article_pub_dates(now: datetime) -> tuple[datetime, datetime]:

@@ -8,10 +8,11 @@ from datetime import UTC, datetime
 
 import requests
 from podcast_shared import generate_summary, send_gotify_notification, store_intake_html
-from trafilatura import extract
 
+from article_extract import extract_body
 from comment_briefing import (
     MIN_COMMENTS,
+    SourceConfig,
     article_pub_dates,
     build_briefing,
     comment_metadata_block,
@@ -38,20 +39,14 @@ def fetch_post_html(url: str) -> str:
     return response.text
 
 
-def extract_article(html: str, title: str, post_date: str, url: str) -> str:
+def extract_article(html: str, title: str, post_date: str, url: str, content_selector: str) -> str:
     """Extract the article body and prefix it with the title and publish date.
 
     Returns:
         The article text with a title/date header for reader context.
 
-    Raises:
-        ValueError: If no content could be extracted from the page.
-
     """
-    content_text = extract(html, include_comments=False, favor_recall=True)
-    if not content_text:
-        msg = f"Trafilatura returned no content for {url}"
-        raise ValueError(msg)
+    content_text = extract_body(html, content_selector, url)
     return f"{title}\nOriginally published: {post_date}\n\n{content_text}"
 
 
@@ -87,7 +82,7 @@ def write_comment_episode(
 
 def process_post(
     post: dict[str, str],
-    source_name: str,
+    config: SourceConfig,
     now: datetime,
     today_str: str,
     next_index: int,
@@ -104,7 +99,7 @@ def process_post(
     logging.info("Processing post %d: %s (%s) [%s]", next_index, title, url, post_date)
 
     html_content = fetch_post_html(url)
-    content_text = extract_article(html_content, title, post_date, url)
+    content_text = extract_article(html_content, title, post_date, url, config.content_selector)
 
     date_stamp = now.strftime("%Y%m%d-%H%M%S")
     clean_title = re.sub(r"[^A-Za-z0-9 ]+", "", title)
@@ -113,7 +108,7 @@ def process_post(
 
     metadata_block = "\n".join(
         [
-            f"META_FROM: {source_name}",
+            f"META_FROM: {config.source_name}",
             f"META_TITLE: {title}",
             f"META_SOURCE_URL: {url}",
             "META_SOURCE_KIND: archive",
@@ -126,7 +121,7 @@ def process_post(
     pathlib.Path(OUTPUT_FOLDER).mkdir(parents=True, exist_ok=True)
     _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
     _ = store_intake_html(
-        source=source_name,
+        source=config.source_name,
         episode_id=date_stamp,
         html=html_content,
         url=url,
@@ -137,12 +132,15 @@ def process_post(
     state["last_processed_date"] = today_str
     _ = state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
-    write_comment_episode(source_name, title, url, html_content, content_text, comment_pd, date_stamp, clean_title)
+    write_comment_episode(
+        config.source_name, title, url, html_content, content_text, comment_pd, date_stamp, clean_title
+    )
 
 
 def main() -> None:
     """Fetch one archive post per day and write a raw text file for the pipeline."""
-    source_name, posts_file = load_source_config()
+    config = load_source_config()
+    posts_file = config.posts_file
     state_path = pathlib.Path(STATE_FILE)
     posts_path = pathlib.Path(posts_file)
 
@@ -171,7 +169,7 @@ def main() -> None:
         return
 
     try:
-        process_post(posts[next_index], source_name, now, today_str, next_index, state, state_path)
+        process_post(posts[next_index], config, now, today_str, next_index, state, state_path)
     except Exception:
         url = posts[next_index].get("url", "?")
         logging.exception("Error processing archive post %s", url)

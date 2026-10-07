@@ -27,8 +27,8 @@ from podcast_shared import (
     stamp_from_name,
     title_key,
 )
-from trafilatura import extract
 
+from article_extract import extract_body
 from comment_briefing import (
     MIN_COMMENTS,
     build_briefing,
@@ -77,7 +77,8 @@ def main() -> None:
     if not indices:
         logging.error("Provide post indices, e.g. backfill_comments.py 6 17 18 20 41")
         return
-    source_name, posts_file = load_source_config()
+    config = load_source_config()
+    source_name, posts_file = config.source_name, config.posts_file
     posts: list[dict[str, str]] = json.loads(  # pyright: ignore[reportAny]
         pathlib.Path(posts_file).read_text(encoding="utf-8"),
     )
@@ -95,7 +96,11 @@ def main() -> None:
         if len(comments) < MIN_COMMENTS:
             logging.info("  only %d comments (<%d); skipping", len(comments), MIN_COMMENTS)
             continue
-        article_text = extract(html, include_comments=False, favor_recall=True) or title
+        try:
+            article_text = extract_body(html, config.content_selector, url)
+        except ValueError:
+            logging.warning("  no article text extracted; summarizing from the title alone")
+            article_text = title
         article_summary = generate_summary(f"{title}\n\n{article_text}", title)
         briefing = build_briefing(title, comments, article_summary)
         if briefing is None:

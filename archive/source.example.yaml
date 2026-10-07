@@ -11,3 +11,9 @@ source_name: Example Blog
 
 # Path to the JSON list of posts (default: posts.json).
 posts_file: posts.json
+
+# Optional CSS selector for the element holding each post's body (e.g. "div.entry-content").
+# Without it, extraction guesses the main content from the whole page, which can pick a
+# sidebar over a very short post. With it, extraction is limited to that element, and a page
+# where the selector matches nothing fails loudly (Gotify alert) instead of publishing junk.
+# content_selector: div.entry-content
