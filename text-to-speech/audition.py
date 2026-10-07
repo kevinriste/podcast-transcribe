@@ -11,10 +11,11 @@ Usage (from text-to-speech/):
 """
 
 import argparse
+import base64
 import logging
 import pathlib
 
-from google.genai import types as genai_types
+from google.genai.interactions import Interaction
 from podcast_shared import get_gemini_client, split_intro, split_metadata
 from pydub import AudioSegment
 
@@ -41,30 +42,26 @@ def synthesize_gemini_sync(content_text: str, model: str, voice: str, style_prom
 
     Raises:
         RuntimeError: If a response comes back without audio data.
+        TypeError: If the API streams the response instead of returning it whole.
 
     """
     client = get_gemini_client()
-    config = genai_types.GenerateContentConfig(
-        response_modalities=["AUDIO"],
-        speech_config=genai_types.SpeechConfig(
-            voice_config=genai_types.VoiceConfig(
-                prebuilt_voice_config=genai_types.PrebuiltVoiceConfig(voice_name=voice),
-            ),
-        ),
-    )
     chunks = chunk_text(content_text, GEMINI_MIN_STEP_BYTES, GEMINI_MAX_STEP_BYTES)
     segments: list[AudioSegment] = []
     for counter, chunk in enumerate(chunks, start=1):
         logging.info("Synthesizing chunk %d of %d via %s", counter, len(chunks), model)
-        response = client.models.generate_content(  # pyright: ignore[reportUnknownMemberType]
+        interaction = client.interactions.create(
             model=model,
-            contents=f"{style_prompt}\n\n{chunk}" if style_prompt else chunk,
-            config=config,
+            input=f"{style_prompt}\n\n{chunk}" if style_prompt else chunk,
+            response_modalities=["audio"],
+            generation_config={"speech_config": [{"voice": voice}]},
+            store=False,
         )
-        candidates = response.candidates
-        content = candidates[0].content if candidates else None
-        parts = content.parts if content else None
-        data = parts[0].inline_data.data if parts and parts[0].inline_data else None
+        if not isinstance(interaction, Interaction):
+            msg = f"Chunk {counter}: expected a complete interaction, got a stream"
+            raise TypeError(msg)
+        audio = interaction.output_audio
+        data = base64.b64decode(audio.data) if audio is not None and audio.data else None
         if not data:
             msg = f"Chunk {counter}: no audio data in response"
             raise RuntimeError(msg)
