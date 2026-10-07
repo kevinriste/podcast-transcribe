@@ -4,6 +4,7 @@ import copy
 import re
 
 from bs4 import BeautifulSoup, Tag
+from podcast_shared import BODY_FORMAT_HTML, parse_html_body, render_html_body
 from trafilatura import extract
 
 # Minimum share of the content element's words that trafilatura's output must cover before
@@ -94,3 +95,38 @@ def extract_body(html: str, content_selector: str, url: str) -> str:
         msg = f"No text found in {content_selector!r} on {url}"
         raise ValueError(msg)
     return text
+
+
+def article_episode_body(
+    html: str, title: str, post_date: str, url: str, content_selector: str
+) -> tuple[str, str, str]:
+    """Build the raw episode body for a post, and its text for the comment briefing.
+
+    With a ``content_selector`` the page HTML goes to prepare-text's HTML stage (the same
+    one newsletter emails use: quotes, tweets, tables and described images), headed by the
+    selector and a "Originally published" preface. Without one, the article text is pulled
+    out here with trafilatura and goes down the plain-text path.
+
+    Returns:
+        ``(headers, body, article_text)``: extra META lines, the raw body, and plain article text.
+
+    Raises:
+        ValueError: If the selector matches nothing or no article text is found.
+
+    """
+    preface = f"Originally published: {post_date}"
+    if content_selector:
+        article_text = render_html_body(parse_html_body(html, content_selector=content_selector, base_url=url), None)
+        if not article_text.strip():
+            msg = f"no article text in {content_selector!r} at {url}"
+            raise ValueError(msg)
+        headers = "\n".join(
+            [
+                f"META_BODY_FORMAT: {BODY_FORMAT_HTML}",
+                f"META_CONTENT_SELECTOR: {content_selector}",
+                f"META_PREFACE: {preface}",
+            ]
+        )
+        return headers, html, article_text
+    article_text = extract_body(html, "", url)
+    return "META_EXTRACTION: plaintext", f"{title}\n{preface}\n\n{article_text}", article_text

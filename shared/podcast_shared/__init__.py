@@ -19,6 +19,10 @@ from podcast_shared.describe import VisionRejectedError as VisionRejectedError
 from podcast_shared.describe import VisionUnavailableError as VisionUnavailableError
 from podcast_shared.describe import describe_image as describe_image
 from podcast_shared.describe import enrich_images as enrich_images
+from podcast_shared.html_body import BODY_FORMAT_HTML as BODY_FORMAT_HTML
+from podcast_shared.html_body import HtmlBody as HtmlBody
+from podcast_shared.html_body import parse_html_body as parse_html_body
+from podcast_shared.html_body import render_html_body as render_html_body
 from podcast_shared.intake_store import slug_source as slug_source
 from podcast_shared.intake_store import store_intake_html as store_intake_html
 from podcast_shared.json_narrow import is_json_array as is_json_array

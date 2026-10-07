@@ -13,7 +13,9 @@ source_name: Example Blog
 posts_file: posts.json
 
 # Optional CSS selector for the element holding each post's body (e.g. "div.entry-content").
-# Without it, extraction guesses the main content from the whole page, which can pick a
-# sidebar over a very short post. With it, extraction is limited to that element, and a page
-# where the selector matches nothing fails loudly (Gotify alert) instead of publishing junk.
+# With it, the page HTML goes through prepare-text's HTML stage like a newsletter email:
+# quotes, tweets, tables and image descriptions are kept, and a page where the selector
+# matches nothing fails loudly (Gotify alert) instead of publishing junk. Without it, the
+# article text is guessed from the whole page (which can pick a sidebar over a very short
+# post) and read as plain text.
 # content_selector: div.entry-content

@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import requests
 from podcast_shared import generate_summary, send_gotify_notification, store_intake_html
 
-from article_extract import extract_body
+from article_extract import article_episode_body
 from comment_briefing import (
     MIN_COMMENTS,
     SourceConfig,
@@ -37,17 +37,6 @@ def fetch_post_html(url: str) -> str:
     response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=30)
     response.raise_for_status()
     return response.text
-
-
-def extract_article(html: str, title: str, post_date: str, url: str, content_selector: str) -> str:
-    """Extract the article body and prefix it with the title and publish date.
-
-    Returns:
-        The article text with a title/date header for reader context.
-
-    """
-    content_text = extract_body(html, content_selector, url)
-    return f"{title}\nOriginally published: {post_date}\n\n{content_text}"
 
 
 def write_comment_episode(
@@ -99,7 +88,9 @@ def process_post(
     logging.info("Processing post %d: %s (%s) [%s]", next_index, title, url, post_date)
 
     html_content = fetch_post_html(url)
-    content_text = extract_article(html_content, title, post_date, url, config.content_selector)
+    body_headers, body, content_text = article_episode_body(
+        html_content, title, post_date, url, config.content_selector
+    )
 
     date_stamp = now.strftime("%Y%m%d-%H%M%S")
     clean_title = re.sub(r"[^A-Za-z0-9 ]+", "", title)
@@ -114,12 +105,13 @@ def process_post(
             "META_SOURCE_KIND: archive",
             "META_INTAKE_TYPE: archive",
             f"META_PUB_DATE: {article_pd.isoformat()}",
+            body_headers,
         ],
     )
 
     logging.info("Writing raw metadata and text to %s", output_filename)
     pathlib.Path(OUTPUT_FOLDER).mkdir(parents=True, exist_ok=True)
-    _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + content_text, encoding="utf-8")
+    _ = pathlib.Path(output_filename).write_text(metadata_block + "\n\n" + body, encoding="utf-8")
     _ = store_intake_html(
         source=config.source_name,
         episode_id=date_stamp,

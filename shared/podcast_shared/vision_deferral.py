@@ -1,12 +1,12 @@
-"""Hold back emails whose image descriptions failed, and retry them on later runs.
+"""Hold back episodes whose image descriptions failed, and retry them on later runs.
 
-An email whose vision call fails is left unseen in the mailbox and recorded here, keyed by
-IMAP UID and checked against its Message-ID (UIDs can be reused after a UIDVALIDITY reset).
-Descriptions already obtained are cached so a retry only asks for the missing ones. Retries
-are spaced out, and after ``DEFER_LIMIT`` the email publishes with caption/alt text instead.
+An item (a raw file in prepare-text) whose vision call fails is left where it is and
+recorded here under its key (the file name). Descriptions already obtained are cached so a
+retry only asks for the missing ones. Retries are spaced out, and after ``DEFER_LIMIT`` the
+item publishes with caption/alt text instead.
 
 Within one run, a ``VisionCircuit`` stops vision calls once the service looks down (or the
-run's vision time budget is spent). Emails reached after that are skipped for this run
+run's vision time budget is spent). Items reached after that are skipped for this run
 without counting as a failed attempt or alerting, so one outage produces one alert.
 """
 
@@ -22,32 +22,32 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-from podcast_shared import VisionRejectedError, VisionUnavailableError, is_json_object
+from podcast_shared.describe import VisionRejectedError, VisionUnavailableError
+from podcast_shared.json_narrow import is_json_object
 
 if TYPE_CHECKING:
     from podcast_shared.describe import Describer
 
 # How long to keep retrying before publishing with caption/alt text.
 DEFER_LIMIT = timedelta(hours=24)
-# Minimum gap between retries of one deferred email (runs are every 20 minutes).
+# Minimum gap between retries of one deferred item (runs are every 20 minutes).
 RETRY_INTERVAL = timedelta(hours=1)
-# Total seconds of vision calls per run; past this, remaining emails wait for the next run.
+# Total seconds of vision calls per run; past this, remaining items wait for the next run.
 RUN_BUDGET_SECONDS = 300.0
 
 
 class Deferral(TypedDict):
-    """Retry state for one deferred email."""
+    """Retry state for one deferred item."""
 
-    message_id: str
     first_deferred: str  # ISO-8601, timezone-aware
     last_attempt: str  # ISO-8601, timezone-aware
     descriptions: dict[str, str]  # image src -> description already obtained
-    alerted: bool  # whether the "deferred" alert has been sent for this email
+    alerted: bool  # whether the "deferred" alert has been sent for this item
 
 
 @dataclass(slots=True)
 class VisionPlan:
-    """What to do with one email this run."""
+    """What to do with one item this run."""
 
     action: Literal["process", "wait"]
     cache: dict[str, str] = field(default_factory=dict[str, str])
@@ -74,7 +74,7 @@ class VisionCircuit:
 
 
 class VisionSkippedError(VisionUnavailableError):
-    """Vision was not attempted for this email because the circuit is tripped for this run."""
+    """Vision was not attempted for this item because the circuit is tripped for this run."""
 
 
 def _aware(value: object) -> datetime | None:
@@ -94,7 +94,7 @@ def _aware(value: object) -> datetime | None:
 
 
 class DeferralStore:
-    """The on-disk set of deferred emails."""
+    """The on-disk set of deferred items."""
 
     def __init__(self, path: pathlib.Path) -> None:
         """Load state from ``path``; a missing or malformed file (or entry) is ignored."""
@@ -106,21 +106,19 @@ class DeferralStore:
             return
         if not is_json_object(raw):
             return
-        for uid, entry in raw.items():
+        for key, entry in raw.items():
             if not is_json_object(entry):
                 continue
-            message_id = entry.get("message_id")
             first = entry.get("first_deferred")
             last = entry.get("last_attempt")
             descs = entry.get("descriptions")
-            if not isinstance(message_id, str) or _aware(first) is None or _aware(last) is None:
+            if _aware(first) is None or _aware(last) is None:
                 continue
             if not isinstance(first, str) or not isinstance(last, str):
                 continue
             cache = {k: v for k, v in descs.items() if isinstance(v, str) and v} if is_json_object(descs) else {}
             alerted = entry.get("alerted")
-            self.entries[uid] = {
-                "message_id": message_id,
+            self.entries[key] = {
                 "first_deferred": first,
                 "last_attempt": last,
                 "descriptions": cache,
@@ -138,22 +136,15 @@ class DeferralStore:
             pathlib.Path(tmp).unlink(missing_ok=True)
             raise
 
-    def _entry(self, uid: str, message_id: str) -> Deferral | None:
-        entry = self.entries.get(uid)
-        return entry if entry is not None and entry["message_id"] == message_id else None
-
-    def plan(self, uid: str, message_id: str, now: datetime) -> VisionPlan:
-        """Decide whether to process an email now, and with what cached descriptions.
+    def plan(self, key: str, now: datetime) -> VisionPlan:
+        """Decide whether to process an item now, and with what cached descriptions.
 
         Returns:
-            ``wait`` for a deferred email whose next retry is not due; otherwise ``process``,
-            with ``allow_undescribed`` once the deferral limit has passed (or when the email
-            has no UID, so it could never be retried).
+            ``wait`` for a deferred item whose next retry is not due; otherwise ``process``,
+            with ``allow_undescribed`` once the deferral limit has passed.
 
         """
-        if not uid:
-            return VisionPlan(action="process", allow_undescribed=True)
-        entry = self._entry(uid, message_id)
+        entry = self.entries.get(key)
         if entry is None:
             return VisionPlan(action="process")
         first = _aware(entry["first_deferred"]) or now
@@ -168,16 +159,15 @@ class DeferralStore:
             previously_deferred=True,
         )
 
-    def record_failure(self, uid: str, message_id: str, cache: dict[str, str], now: datetime) -> bool:
+    def record_failure(self, key: str, cache: dict[str, str], now: datetime) -> bool:
         """Record (or extend) a deferral after vision failed.
 
         Returns:
-            True if this email was not already deferred (the caller should alert once).
+            True if this item was not already deferred (the caller should alert once).
 
         """
-        entry = self._entry(uid, message_id)
-        self.entries[uid] = {
-            "message_id": message_id,
+        entry = self.entries.get(key)
+        self.entries[key] = {
             "first_deferred": entry["first_deferred"] if entry else now.isoformat(),
             "last_attempt": now.isoformat(),
             "descriptions": {k: v for k, v in cache.items() if v},
@@ -185,7 +175,7 @@ class DeferralStore:
         }
         return entry is None or not entry["alerted"]
 
-    def stash(self, uid: str, message_id: str, cache: dict[str, str], now: datetime) -> bool:
+    def stash(self, key: str, cache: dict[str, str], now: datetime) -> bool:
         """Record a run-level skip without counting it as an attempt.
 
         An existing entry keeps its timing and gains any new descriptions. A new entry is
@@ -198,14 +188,13 @@ class DeferralStore:
 
         """
         descriptions = {k: v for k, v in cache.items() if v}
-        entry = self._entry(uid, message_id)
+        entry = self.entries.get(key)
         if entry is not None:
             if descriptions == entry["descriptions"]:
                 return False
             entry["descriptions"] = descriptions
             return True
-        self.entries[uid] = {
-            "message_id": message_id,
+        self.entries[key] = {
             "first_deferred": now.isoformat(),
             "last_attempt": (now - RETRY_INTERVAL).isoformat(),
             "descriptions": descriptions,
@@ -213,26 +202,26 @@ class DeferralStore:
         }
         return True
 
-    def clear(self, uid: str) -> bool:
-        """Forget an email once it has been published.
+    def clear(self, key: str) -> bool:
+        """Forget an item once it has been published.
 
         Returns:
             True if an entry was removed.
 
         """
-        return self.entries.pop(uid, None) is not None
+        return self.entries.pop(key, None) is not None
 
-    def prune(self, live_uids: set[str]) -> bool:
-        """Drop entries for emails no longer unseen in the mailbox (read or deleted by hand).
+    def prune(self, live_keys: set[str]) -> bool:
+        """Drop entries for items that are gone (published some other way, or deleted by hand).
 
         Returns:
             True if anything was removed.
 
         """
-        stale = [uid for uid in self.entries if uid not in live_uids]
-        for uid in stale:
-            logging.info("Dropping vision deferral for UID %s (no longer unseen in the mailbox)", uid)
-            del self.entries[uid]
+        stale = [key for key in self.entries if key not in live_keys]
+        for key in stale:
+            logging.info("Dropping vision deferral for %s (no longer waiting)", key)
+            del self.entries[key]
         return bool(stale)
 
 
@@ -244,14 +233,14 @@ def make_describer(
     allow_undescribed: bool,
     failures: list[str],
 ) -> Describer:
-    """Wrap ``describe`` with the per-email cache, the per-run circuit, and the expiry fallback.
+    """Wrap ``describe`` with the per-item cache, the per-run circuit, and the expiry fallback.
 
     Descriptions are read from and written to ``cache``. An image the API rejects outright
     falls back to "" (caption/alt) and is listed in ``failures``. Otherwise, without
-    ``allow_undescribed``, a failure raises ``VisionUnavailableError`` (deferring the email),
+    ``allow_undescribed``, a failure raises ``VisionUnavailableError`` (deferring the item),
     and a tripped circuit raises ``VisionSkippedError`` (skipping it for this run). With
     ``allow_undescribed``, each failing image falls back to "" and is listed in ``failures``,
-    so later images in the same email are still described.
+    so later images in the same item are still described.
 
     Returns:
         The wrapped describer.

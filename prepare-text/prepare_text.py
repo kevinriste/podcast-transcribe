@@ -24,6 +24,7 @@ import yaml
 from bs4 import BeautifulSoup
 from podcast_shared import (
     ASIDE_MARKER,
+    BODY_FORMAT_HTML,
     LISTENING_TIME_MARKER,
     enable_post_in_podly,
     generate_text,
@@ -31,6 +32,8 @@ from podcast_shared import (
     send_gotify_notification,
     split_metadata,
 )
+
+from html_stage import HtmlStage
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -1177,8 +1180,17 @@ def is_passthrough(metadata: dict[str, str]) -> bool:
     return metadata.get("intake_type", "") == "archive-comments"
 
 
-def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict[str, FileStats]) -> None:
-    """Filter, clean, and write a single raw text file."""
+def process_file(
+    filepath: pathlib.Path,
+    config: PipelineConfig,
+    all_stats: dict[str, FileStats],
+    html_stage: HtmlStage | None = None,
+) -> None:
+    """Filter, clean, and write a single raw text file.
+
+    A file whose body is HTML goes through the HTML stage first; if its image
+    descriptions are deferred, it is left in place for a later run.
+    """
     filename = filepath.name
     logging.info("Processing: %s", filename)
 
@@ -1186,6 +1198,11 @@ def process_file(filepath: pathlib.Path, config: PipelineConfig, all_stats: dict
     raw_text = filepath.read_text(encoding="utf-8")
     metadata: dict[str, str]
     metadata, content_raw = split_metadata(raw_text)
+    if metadata.get("body_format") == BODY_FORMAT_HTML:
+        converted = (html_stage or HtmlStage()).convert(filename, metadata, content_raw)
+        if converted is None:
+            return
+        metadata, content_raw = converted
     timestamp = datetime.now(tz=UTC).isoformat(timespec="microseconds")
 
     # Initialize stats entry
@@ -1442,6 +1459,7 @@ def process_files() -> None:
 
     # Load today's stats (append to existing if re-run)
     all_stats = load_today_stats()
+    html_stage = HtmlStage()
 
     # Process files
     txt_files = sorted(pathlib.Path(RAW_INPUT_DIR).glob("*.txt"))
@@ -1459,11 +1477,12 @@ def process_files() -> None:
                 continue
 
         try:
-            process_file(txt_file, config, all_stats)
+            process_file(txt_file, config, all_stats, html_stage)
         except Exception:
             logging.exception("Error processing %s — leaving in raw for retry", txt_file.name)
             continue
 
+    html_stage.prune({path.name for path in pathlib.Path(RAW_INPUT_DIR).glob("*.txt")})
     save_stats(all_stats)
 
 

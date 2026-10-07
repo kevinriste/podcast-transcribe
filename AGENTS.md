@@ -93,13 +93,8 @@ Archive (check-archive) ─┘                                        │
 
 ### 1. `imap/parse_email.py` (Intake)
 Fetches unseen Gmail messages. Three intake modes based on email subject:
-- **Default (newsletters)**: Extracts body text, detects platform (Substack, Beehiiv), and extracts the canonical source URL.
-  - For HTML-body sources (Substack, etc.), extracts body from HTML rather than lossy plain text to prevent anchor word-joins and preserve structure.
-  - Recognized platforms route through structural extractor (`shared/podcast_shared/structural_extract.py`), walking HTML into an ordered `Block` tree.
-  - Quotes are marked with `BLOCKQUOTE_MARKER`. Embedded content (tweets, images, videos, link cards, footnotes) is parsed into `ASIDE_MARKER` blocks.
-  - Content images and tweet media are described via OpenAI Responses API vision (`shared/podcast_shared/describe.py`), gated by `EMBED_VISION` (`1`=enabled, `0`=disabled) and `EMBED_DROP_TYPES`. Vision replies `DECORATIVE` for page chrome (logos, icons, dividers, banners), and those images are dropped.
-  - Vision failures are classified. An image the API refuses (a 400/422 whose code or param names the image) falls back to caption/alt text at once and is reported in a Gotify alert. A URL the API can't download is retried 3 times (5 s and 20 s waits) and then defers only that email. Everything else counts as an outage: bad key or model (401/403/404), any other invalid-request 400, or connection/5xx errors after 3 attempts. An outage defers the email and trips a per-run circuit. Once the circuit trips, or 5 minutes of vision time have been spent in the run, later emails are skipped until the next run: they stay unseen, no attempt is counted and no alert is sent, but their 24-hour clock starts. So an outage alerts once per email only when that email is actually tried, and a long outage can't hold back emails indefinitely.
-  - Deferred emails live in `imap/vision-deferrals.json` (atomic writes), keyed by IMAP UID and checked against Message-ID. Descriptions already obtained are cached, including those from a skipped run, so a retry only asks for the missing ones. A deferred email is retried at most hourly. Gotify alerts once when an email is first deferred. After 24 hours it publishes, with caption/alt text for any image that still fails, plus a second alert. Entries for emails no longer unseen are pruned.
+- **Default (newsletters)**: Detects platform (Substack, Beehiiv, or a configured custom source) and extracts the canonical source URL.
+  - HTML-body sources (Substack, Beehiiv, custom sources with `use_html_body`) write the email's HTML as the raw body with `META_BODY_FORMAT: html`; prepare-text's HTML stage turns it into text (see section 4). An email with no HTML part, or a source without `use_html_body`, writes its plain text instead. Emails are marked seen once written.
   - Publisher-specific link extraction and scraping rules are configured in `imap/sources.yaml` (`sources.example.yaml`).
 - **`link`**: Fetches full article via Playwright + trafilatura. URLs matching configured authenticated domains route to the authenticated scraper (`http://localhost:3002/fetch`), others to the general scraper (`http://localhost:3001/fetch`).
 - **`youtube`**: Downloads audio directly via `yt-dlp` using non-HLS audio format and Android player client (`bestaudio[protocol!=m3u8][protocol!=m3u8_native]/bestaudio/best`, `{"youtube": {"player_client": ["android"]}}`). Writes ID3 tags directly, bypassing the TTS pipeline.
@@ -114,12 +109,19 @@ Polls feeds configured in `rss/feeds.yaml` (`feeds.example.yaml`).
 ### 3. `archive/check-archive.py` (Intake)
 Scheduled intake that walks a blog/archive one post per day from `archive/posts.json` (gitignored), tracking state in `state.json`.
 - Source display name is configured in `archive/source.yaml` (`source.example.yaml`).
-- Optional `content_selector` (CSS selector for the post body element) scopes extraction to that element (`archive/article_extract.py`). Whole-page trafilatura can pick a sidebar over a very short post; within the element, trafilatura's output is used when it covers the element's text, else the element's own text, else image title/alt text. A selector that matches nothing raises (Gotify alert) instead of publishing junk.
+- With a `content_selector` (CSS selector for the post body element), the page HTML is written as the raw body with `META_BODY_FORMAT: html`, `META_CONTENT_SELECTOR` and a `META_PREFACE` ("Originally published: <date>"), and goes through prepare-text's HTML stage like a newsletter email. A selector that matches nothing (or an empty article) raises at intake (Gotify alert) instead of publishing junk.
+- Without a selector, the article text is pulled out at intake with trafilatura (`archive/article_extract.py`) and goes down the plain-text path, headed by the title and publish date.
 - When a post has sufficient comments, generates a multi-voice "Highlights From The Comments" companion episode (`archive/comment_briefing.py` using OpenAI Responses API model specified in `COMMENT_BRIEFING_MODEL`, default `gpt-5-mini`).
 - Writes to `prepare-text/text-input-raw/`.
 
 ### 4. `prepare-text/prepare_text.py` (Filtering & Cleaning)
 Processes raw files from `prepare-text/text-input-raw/` according to rules in `prepare-text/filters.yaml` (`filters.example.yaml`):
+- **HTML stage** (`prepare-text/html_stage.py`, `shared/podcast_shared/html_body.py`): a raw file with `META_BODY_FORMAT: html` is converted to text before filters and cleaning see it. Plain-text raw files skip it.
+  - The article region is the element matching `META_CONTENT_SELECTOR`, else the detected Substack/Beehiiv/`<article>` container, else the whole document. Only a matched region sets `META_EXTRACTION: structured`; the whole-document fallback stays `plaintext` and keeps the plain-text cleaning.
+  - The structural extractor (`shared/podcast_shared/structural_extract.py`) walks the region into an ordered `Block` tree. Quotes are marked with `BLOCKQUOTE_MARKER`; embedded content (tweets, images, videos, link cards, footnotes, data tables read row by row) becomes `ASIDE_MARKER` asides. Lines broken only by `<br>` stay separate lines. Relative image URLs resolve against `META_SOURCE_URL`. `META_PREFACE`, if set, opens the body.
+  - Content images and tweet media are described via OpenAI Responses API vision (`shared/podcast_shared/describe.py`), gated by `EMBED_VISION` (`1`=enabled, `0`=disabled) and `EMBED_DROP_TYPES`. Vision replies `DECORATIVE` for page chrome (logos, icons, dividers, banners), and those images are dropped.
+  - Vision failures are classified. An image the API refuses (a 400/422 whose code or param names the image) falls back to caption/alt text at once and is reported in a Gotify alert. A URL the API can't download is retried 3 times (5 s and 20 s waits) and then defers only that file. Everything else counts as an outage: bad key or model (401/403/404), any other invalid-request 400, or connection/5xx errors after 3 attempts. An outage defers the file and trips a per-run circuit. Once the circuit trips, or 5 minutes of vision time have been spent in the run, later HTML files are skipped until the next run: they stay in `text-input-raw/`, no attempt is counted and no alert is sent, but their 24-hour clock starts. So an outage alerts once per file only when that file is actually tried, and a long outage can't hold back episodes indefinitely.
+  - Deferred files stay in `text-input-raw/` and are tracked in `prepare-text/vision-deferrals.json` (atomic writes, `shared/podcast_shared/vision_deferral.py`), keyed by file name. Descriptions already obtained are cached, including those from a skipped run, so a retry only asks for the missing ones. A deferred file is retried at most hourly. Gotify alerts once when a file is first deferred. After 24 hours it publishes, with caption/alt text for any image that still fails, plus a second alert. Entries for files no longer in `text-input-raw/` are pruned.
 - **Filtering Actions**:
   - `skip`: Skips text synthesis entirely.
   - `notify`: Dispatches a Gotify push alert (can be gated by Gemini via `llm_check`).
@@ -186,6 +188,8 @@ Key exports:
 - `structural_extract.py`: Offline parser turning HTML into structured `Block` trees.
 - `aside_render.py`: Renders embedded blocks into meta-narrator spoken asides.
 - `describe.py`: OpenAI vision descriptions for images and tweets.
+- `html_body.py`: The HTML stage's extraction: article region, blocks, image descriptions, serialization.
+- `vision_deferral.py`: Deferral state, per-run circuit and describer wrapper for failed image descriptions.
 - `openai_routing.py`: Picks the OpenAI key per model (share vs noshare project) and sends billed noshare calls at the Flex tier with a standard-tier fallback.
 - `podly.py`: Podly API client for remote post whitelisting and processing.
 
@@ -236,7 +240,7 @@ Configured in gitignored root `.env` (template in `.env.example`):
 - **Published audio**: `dropcaster-docker/audio/`
 - **Evergreen feed audio**: `dropcaster-docker/audio/evergreen/`
 - **Archived audio**: `dropcaster-docker/audio-archive/`
-- **Vision deferrals** (emails awaiting image descriptions): `imap/vision-deferrals.json`
+- **Vision deferrals** (HTML raw files awaiting image descriptions): `prepare-text/vision-deferrals.json`
 
 ---
 

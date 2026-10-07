@@ -43,4 +43,4 @@ text-to-speech/comparison_output*/
 !/dropcaster-docker/audio/evergreen/
 !/dropcaster-docker/audio/evergreen/channel.example.yml
 !/dropcaster-docker/audio/evergreen/index.example.html
-/imap/vision-deferrals.json
+/prepare-text/vision-deferrals.json
